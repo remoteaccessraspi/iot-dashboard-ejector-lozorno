@@ -4,7 +4,8 @@ echo "=============================="
 echo " IOT DASHBOARD AUTO COMMIT"
 echo "=============================="
 
-cd ~/apps/iot_dashboard || exit
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR" || exit 1
 
 echo ""
 echo "Adding files..."
