@@ -1,0 +1,70 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>IOT HMI</title>
+  <link rel="stylesheet" href="{{ request.url_for('static', path='css/style.css') }}">
+</head>
+<body>
+
+{% include "header.html" %}
+
+<div class="title">IOT HMI – t (°C), i (mA), p</div>
+
+<div class="meta">
+  Auto refresh: <span id="refreshMs"></span> ms |
+  Last update: <span id="lastUpdate">-</span> |
+  DB: <span id="dbStatus" class="pill bad">?</span>
+</div>
+
+<div class="row">
+
+  <!-- TEMPERATURE -->
+  <div class="card">
+    <div class="title">Temperatures (°C)</div>
+    <div class="small">
+      Last DB write: <span id="tLastDb">-</span>
+    </div>
+    <table id="tTable"></table>
+  </div>
+
+  <!-- CURRENT -->
+  <div class="card">
+    <div class="title">Currents (mA)</div>
+    <div class="small">
+      Last DB write: <span id="iLastDb">-</span>
+    </div>
+    <table id="iTable"></table>
+  </div>
+
+  <!-- PRESSURE -->
+  <div class="card">
+    <div class="title">Converted</div>
+    <table id="pTable"></table>
+  </div>
+
+  <!-- RELAYS -->
+  <div class="card">
+    <div class="title">Relays</div>
+    <table id="relayTable">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>State</th>
+          <th>Mode</th>
+        </tr>
+      </thead>
+      <tbody id="relayBody"></tbody>
+    </table>
+  </div>
+
+</div>
+
+<script>
+const REFRESH_MS = {{ refresh_ms }};
+</script>
+
+<script src="{{ request.url_for('static', path='js/main.js') }}"></script>
+
+</body>
+</html>

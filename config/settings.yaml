@@ -1,0 +1,474 @@
+modbus: 
+  method: rtu
+  #port: /dev/ttyUSB0
+  port: /dev/serial/by-id/usb-FTDI_FT232R_USB_UART_BG01Q2MU-if00-port0
+  baudrate: 9600
+  parity: N
+  stopbits: 1
+  timeout_sec: 0.55
+
+  slaves:
+    temperature_slave_id: 2
+    current_slave_id: 3
+    opta_slave_id: 1
+    waveshare_relay_slave_id: 4
+
+  registers:
+    temperature:
+      function: holding_registers
+      address: 2
+      count: 8
+      scale: 0.1
+      signed: true
+
+    current_loop:
+      function: holding_registers
+      address: 96      # ⚠ toto môže byť 8, 16 alebo iné – podľa manuálu
+      count: 8
+      scale: 0.001
+      signed: false
+database:
+  host: 127.0.0.1
+  port: 3306
+  user: dbapp
+  password: admin
+  name: ejector
+
+
+#
+# ------------------------
+# KONVERZNÉ KANÁLY
+# ------------------------
+channels:
+
+  # --- Teploty ---
+  t1: { name: "Teplota kondenzatora vstup(in) sekundar", unit: "°C" }
+  t2: { name: "Teplota vyparnika vystup(in) sekundar", unit: "°C" }
+  t3: { name: "Teplota generatora vstup(in) sekundar", unit: "°C" }
+  t4: { name: "Teplota generatora vystup(out) sekundar", unit: "°C" }
+  t5: { name: "Teplota kondenzatora vystup(out) sekundar", unit: "°C" }
+  t6: { name: "Studena voda", unit: "°C" }
+  t7: { name: "Tepla voda", unit: "°C" }
+  t8: { name: "Teplota vyparnika vstup(in) sekundar", unit: "°C" }
+
+  # --- Tlaky ---
+  p1: { name: "NA", unit: "Pa" }
+  p2: { name: "NA", unit: "Pa" }
+  p3: { name: "NA", unit: "Pa" }
+  p4: { name: "NA", unit: "Pa" }
+  p5: { name: "Kondenzacny tlak", unit: "kPa" }
+  p6: { name: "Generacny tlak", unit: "kPa" }
+  p7: { name: "Vyparny tlak", unit: "kPa" }
+  p8: { name: "NA", unit: "kPa" }
+
+  # --- Currents ---
+  i1: { name: "na", unit: "mA" }
+  i2: { name: "NA", unit: "mA" }
+  i3: { name: "NA", unit: "mA" }
+  i4: { name: "NA", unit: "mA" }
+  i5: { name: "Kondenzacny tlak", unit: "mA" }
+  i6: { name: "Generacny tlak", unit: "mA" }
+  i7: { name: "Vyparny tlak", unit: "mA" }
+  i8: { name: "NA", unit: "mA" }
+
+conversion:
+  interval_sec: 1
+  channels:
+    p1: { source: i1, a: 0.0, b: 100000.0 }
+    p2: { source: i2, a: 0.0, b: 100000.0 }
+    p3: { source: i3, a: 0.0, b: 100000.0 }
+    p4: { source: i4, a: 0.0, b: 100000.0 }
+    p5: { source: i5, a: 0.0, b: 700.0 }
+    p6: { source: i6, a: 0.0, b: 1700.0 }
+    p7: { source: i7, a: 0.0, b: 700.0 }
+    p8: { source: i8, a: 100.0, b: 300.0 } 
+
+# ------------------------
+# RELÉ
+# ------------------------
+relay:
+  count: 8
+  default_state: 0
+  names:
+    r1: "Expanzný ventil"
+    r2: "ENABLE PID (FIXED)"
+    r3: "NA"
+    r4: "NA"
+    r5: "NA"
+    r6: "Chladiaca veža"
+    r7: "Cerpadlo v okruhu chladiaceho stroja"
+    r8: "NA"
+     # ----------------------------------------
+  # RIADENIE RELÉ
+  # ----------------------------------------
+
+
+  control:
+
+    # ---- R1 AUTO ----
+    r1:
+      mode: manual
+      logic: OR
+      
+
+      rules:
+
+        # pravidlo 1 (AND podmienky)
+        - time:
+            from: "06:00"
+            to:   "21:00"
+          conditions:
+            - { source: t3, min: 66, max: 100, hyst: 2.5 }
+
+
+    # ---- R2 MANUAL ----
+    r2:
+      mode: manual
+
+    r3:
+      mode: manual
+
+    r4:
+      mode: manual
+ 
+
+    r5:
+      mode: manual
+
+    r6:
+      mode: manual
+      logic: OR
+      
+
+      rules:
+
+        # pravidlo 1 (AND podmienky)
+        - time:
+            from: "06:00"
+            to:   "21:00"
+          conditions:
+            - { source: p5, min: 266.805, max: 10000, hyst: 23.513 }
+
+    r7:
+      mode: manual
+      logic: OR
+      
+
+      rules:
+
+        # pravidlo 1 (AND podmienky)
+        - time:
+            from: "06:00"
+            to:   "21:00"
+          conditions:
+            - { source: t3, min: 66, max: 100, hyst: 2.5 }
+
+    r8:
+      mode: auto
+      logic: OR
+      
+
+      rules:
+
+        # pravidlo 1 (AND podmienky)
+        - time:
+            from: "06:00"
+            to:   "21:00"
+          conditions:
+            - { source: t3, min: 66, max: 100, hyst: 2.5 }
+# ------------------------
+# PWM
+# ------------------------
+pwm:
+  period:
+    default: 6000
+    min: 100
+    max: 10000
+    step: 100
+    unit: "ms"
+
+  duty:
+    default: 12.8
+    min: 0
+    max: 100
+    step: 0.1
+    unit: "%"
+
+# ------------------------
+# PID
+# ------------------------
+pid:
+  t_set:
+    default: 1.0
+    min: 0.0
+    max: 100.0
+    step: 0.1
+
+  t_full:
+    default: 0.1
+    min: 0.0
+    max: 10.0
+    step: 0.01
+
+  t_move:
+    default: 0.01
+    min: 0.0
+    max: 10.0
+    step: 0.01
+
+# ============================================================
+# PLC APLIKÁCIA – KOMPLETNÁ DOKUMENTÁCIA KONFIGURÁCIE
+# ============================================================
+
+
+# ============================================================
+# 1. ARCHITEKTÚRA SYSTÉMU
+# ============================================================
+# Systém pozostáva z:
+# • Modbus RTU komunikácie
+# • Databázy (MariaDB)
+# • Konverzie 4–20 mA → fyzikálne veličiny
+# • Relay rule engine s časovými pravidlami
+# • PWM riadenia
+# • PID regulátora
+# • Web aplikácie (app.py)
+#
+# Bezpečnostná logika (enable väzby) je pevne definovaná v kóde.
+# YAML slúži iba na konfiguráciu.
+
+
+# ============================================================
+# 2. MODBUS KONFIGURÁCIA
+# ============================================================
+# modbus:
+#   method: rtu
+#   port: /dev/serial/by-id/...
+#   baudrate: 19200
+#   parity: N
+#   stopbits: 1
+#   timeout_sec: 1
+#
+# Slaves:
+#   temperature_slave_id: 2
+#   current_slave_id: 3
+#   opta_slave_id: 1
+#
+# Register map:
+# temperature:
+#   function: holding_registers
+#   address: 2
+#   count: 8
+#   signed: true
+#
+# current_loop:
+#   function: holding_registers
+#   address: 96
+#   count: 8
+#   signed: false
+#
+# Význam:
+# • function = typ Modbus funkcie
+# • address = počiatočná adresa
+# • count = počet registrov
+# • signed = či je hodnota so znamienkom
+
+
+# ============================================================
+# 3. KONVERZNÉ KANÁLY (4–20 mA)
+# ============================================================
+# Prúd sa ukladá do databázy už v mA.
+# Príklad:
+#   4000 → 4.000 mA
+#
+# scale sa nepoužíva.
+#
+# Definícia:
+#   p1: { source: i1, a: 0.0, b: 100000.0 }
+#
+# a = hodnota pri 4 mA
+# b = hodnota pri 20 mA
+#
+# Extrapolácia NIE JE POVOLENÁ.
+#
+# Clampovanie:
+#   ak i < 4.0  → i = 4.0
+#   ak i > 20.0 → i = 20.0
+#
+# Výpočet:
+#   p = a + (i - 4.0) * (b - a) / 16.0
+#
+# 16 = (20 - 4)
+#
+# Systém nikdy negeneruje hodnoty mimo fyzikálneho rozsahu.
+
+
+# ============================================================
+# 4. RELAY SEKČIA – ZÁKLADY
+# ============================================================
+# relay:
+#   count: 8
+#   default_state: 0
+#
+# names:
+#   r1: "Enable PWM (FIXED)"
+#   r2: "Enable PID (FIXED)"
+#   r3: "Valve 1"
+#   r4: "Heater"
+#   r5: "Spare 1"
+#   r6: "Spare 2"
+#   r7: "Spare 3"
+#   r8: "Spare 4"
+#
+# count = počet relé
+# default_state = stav po štarte (0 vypnuté, 1 zapnuté)
+
+
+# ============================================================
+# 5. FIXNÉ RELÉ – ENABLE MAP
+# ============================================================
+# r1 = ENABLE PWM
+# r2 = ENABLE PID
+#
+# Tieto väzby sú pevne definované v kóde.
+# YAML ich nesmie meniť.
+#
+# Ak:
+#   r1 = 0 → PWM je blokované
+#   r2 = 0 → PID je blokované
+#
+# Aj keď ostatné podmienky platia.
+
+
+# ============================================================
+# 6. RELAY – MODE A LOGIC
+# ============================================================
+# mode:
+#   manual → riadi obsluha
+#   auto   → riadi rule engine
+#
+# logic:
+#   OR  → stačí splnenie jedného rule
+#   AND → musia byť splnené všetky rule
+
+
+# ============================================================
+# 7. RELAY – PRAVIDLÁ (RULES)
+# ============================================================
+# Štruktúra:
+#
+# rules:
+#   - time:
+#       from: "HH:MM"
+#       to:   "HH:MM"
+#     conditions:
+#       - { source: X, min: A, max: B, hyst: H }
+#
+# Každé rule MUSÍ mať časový blok.
+
+
+# ============================================================
+# 8. ČASOVÉ OBMEDZENIE
+# ============================================================
+# Formát času:
+#   HH:MM (24 hodinový formát)
+#   vždy dvojmiestne (06:00, nie 6:00)
+#
+# Príklady:
+#   06:00 → 18:00
+#   22:00 → 04:00 (cez polnoc)
+#   00:00 → 24:00 (celý deň)
+#
+# 24:00 = 1440 minút od polnoci
+#
+# Vyhodnotenie:
+#   minúty = HH * 60 + MM
+#
+# Interval bez polnoci:
+#   from ≤ now < to
+#
+# Interval cez polnoc:
+#   now ≥ from OR now < to
+#
+# Ak:
+#   from = "00:00"
+#   to   = "24:00"
+# → pravidlo platí 24 hodín denne
+
+
+# ============================================================
+# 9. HYSTERÉZIA
+# ============================================================
+# Relé sa zapne keď:
+#   min ≤ hodnota ≤ max
+#
+# Relé sa vypne keď:
+#   hodnota < (min - hyst)
+#   alebo
+#   hodnota > (max + hyst)
+#
+# Hysterézia zabraňuje kmitaniu relé.
+
+
+# ============================================================
+# 10. PWM KONFIGURÁCIA
+# ============================================================
+# pwm:
+#   period:
+#     default: 6000
+#     min: 100
+#     max: 10000
+#     step: 100
+#     unit: ms
+#
+#   duty:
+#     default: 50
+#     min: 0
+#     max: 100
+#     step: 1
+#     unit: %
+#
+# PWM je aktívne len ak r1 = 1.
+
+
+# ============================================================
+# 11. PID KONFIGURÁCIA
+# ============================================================
+# pid:
+#   t_set:
+#     default: 1.0
+#     min: 0.0
+#     max: 100.0
+#     step: 0.1
+#
+#   t_full:
+#     default: 0.1
+#     min: 0.0
+#     max: 10.0
+#     step: 0.01
+#
+#   t_move:
+#     default: 0.01
+#     min: 0.0
+#     max: 10.0
+#     step: 0.01
+#
+# PID je aktívne len ak r2 = 1.
+
+
+# ============================================================
+# 12. PRODUKČNÉ ZÁSADY
+# ============================================================
+# • Žiadna extrapolácia 4–20 mA
+# • Všetky rule majú časový blok
+# • Hysterézia je povinná
+# • r1 a r2 sú fixné systémové relé
+# • YAML nemení bezpečnostnú logiku
+# • Systém nesmie generovať fyzikálne nemožné hodnoty
+#
+# ============================================================
+# KONIEC DOKUMENTÁCIE
+# ============================================================#test
+#test
+#test
+#test
+#test

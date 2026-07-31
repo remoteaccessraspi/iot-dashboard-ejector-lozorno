@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+
+<meta charset="utf-8">
+<title>IOT HMI - Graph</title>
+
+<link rel="stylesheet" href="{{ request.url_for('static', path='css/style.css') }}">
+
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1"></script>
+
+<!-- Zoom plugin -->
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1"></script>
+
+<style>
+
+.graph-controls label{
+    font-size:20px;
+    line-height:1.2;      /* 👈 hustejšie riadky */
+    margin:2px 0;         /* 👈 menšie medzery medzi položkami */
+    display:block;
+}
+
+.graph-controls b{
+    font-size:20px;
+    margin-bottom:6px;    /* 👈 menšia medzera pod nadpisom */
+    display:block;
+}
+
+.graph-controls{
+    gap:20px !important;  /* 👈 menšia medzera medzi stĺpcami */
+}
+
+</style>
+</style>
+
+</head>
+
+<body>
+
+{% include "header.html" %}
+
+<div class="title">Graph</div>
+
+<div class="row">
+
+<div class="card">
+
+<div class="graph-controls" style="display:flex;flex-wrap:wrap;gap:40px;margin-bottom:20px">
+
+<!-- TEMPERATURE -->
+<div>
+
+<b>Temperature</b><br>
+
+{% for name in t_names %}
+{% set idx = loop.index %}
+{% if name and name|trim|lower != "na" %}
+<label>
+<input type="checkbox" value="t{{ idx }}">
+{{ name }}{% if t_units[idx-1] %} ({{ t_units[idx-1] }}){% endif %}
+</label><br>
+{% endif %}
+{% endfor %}
+
+</div>
+
+
+<!-- PRESSURE -->
+<div>
+
+<b>Pressure</b><br>
+
+{% for name in p_names %}
+{% set idx = loop.index %}
+{% if name and name|trim|lower != "na" %}
+<label>
+<input type="checkbox" value="p{{ idx }}">
+{{ name }}{% if p_units[idx-1] %} ({{ p_units[idx-1] }}){% endif %}
+</label><br>
+{% endif %}
+{% endfor %}
+
+</div>
+
+
+<!-- RANGE -->
+<div>
+
+<b>Range</b><br>
+
+<select id="range" style="font-size:20px">
+
+<option value="5m">5 min</option>
+<option value="10m">10 min</option>
+
+<option value="1h">1 h</option>
+<option value="6h">6 h</option>
+<option value="12h">12 h</option>
+<option value="24h" selected>24 h</option>
+
+</select>
+
+<br><br>
+
+<button onclick="loadGraph()" style="font-size:20px;padding:8px 18px">
+Load
+</button>
+
+<br><br>
+
+<button id="btnLive"
+        class="btn-live"
+        onclick="toggleLive()"
+        style="font-size:20px;padding:8px 18px">
+
+LIVE
+
+</button>
+
+</div>
+
+</div>
+
+<canvas id="chart" height="120"></canvas>
+
+</div>
+
+</div>
+
+<!-- Graph logic -->
+<script src="{{ request.url_for('static', path='js/graph.js') }}"></script>
+
+</body>
+</html>

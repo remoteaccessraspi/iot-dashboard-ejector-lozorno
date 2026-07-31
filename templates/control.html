@@ -1,0 +1,106 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>IOT HMI - Control</title>
+  <link rel="stylesheet" href="{{ request.url_for('static', path='css/style.css') }}">
+</head>
+<body>
+
+{% include "header.html" %}
+
+<div class="title">Control Panel</div>
+
+<div class="row">
+
+  <!-- ================= PWM ================= -->
+  <div class="card">
+    <div class="title">PWM</div>
+
+    <label>
+      Period ({{ pwm.period.unit }})
+    </label><br>
+
+    <input type="number"
+           id="pwm_period"
+           min="{{ pwm.period.min }}"
+           max="{{ pwm.period.max }}"
+           step="{{ pwm.period.step }}">
+
+    <div class="small">
+      Range: {{ pwm.period.min }} – {{ pwm.period.max }} {{ pwm.period.unit }}
+    </div>
+
+    <br><br>
+
+    <label>
+      Duty ({{ pwm.duty.unit }})
+    </label><br>
+
+    <input type="number"
+           id="pwm_duty"
+           min="{{ pwm.duty.min }}"
+           max="{{ pwm.duty.max }}"
+           step="{{ pwm.duty.step }}">
+
+    <div class="small">
+      Range: {{ pwm.duty.min }} – {{ pwm.duty.max }} {{ pwm.duty.unit }}
+    </div>
+
+    <br><br>
+    <button onclick="saveAll()">Save</button>
+  <!-- <button onclick="sendPWM()">Save PWM</button> -->
+  </div>
+
+  <!-- ================= PID ================= -->
+  <div class="card">
+    <div class="title">PID</div>
+
+    <label>t_set</label><br>
+    <input type="number"
+           id="pid_t_set"
+           min="{{ pid.t_set.min }}"
+           max="{{ pid.t_set.max }}"
+           step="{{ pid.t_set.step }}">
+
+    <div class="small">
+      Range: {{ pid.t_set.min }} – {{ pid.t_set.max }}
+    </div>
+
+    <br><br>
+
+    <label>t_full</label><br>
+    <input type="number"
+           id="pid_t_full"
+           min="{{ pid.t_full.min }}"
+           max="{{ pid.t_full.max }}"
+           step="{{ pid.t_full.step }}">
+
+    <div class="small">
+      Range: {{ pid.t_full.min }} – {{ pid.t_full.max }}
+    </div>
+
+    <br><br>
+
+    <label>t_move</label><br>
+    <input type="number"
+           id="pid_t_move"
+           min="{{ pid.t_move.min }}"
+           max="{{ pid.t_move.max }}"
+           step="{{ pid.t_move.step }}">
+
+    <div class="small">
+      Range: {{ pid.t_move.min }} – {{ pid.t_move.max }}
+    </div>
+
+    <br><br>
+    <button onclick="saveAll()">Save</button>
+  <!--  <button onclick="sendPID()">Save PID</button> -->
+  </div>
+
+</div>
+
+<script src="{{ request.url_for('static', path='js/control.js') }}" defer></script>
+
+</body>
+</html>
