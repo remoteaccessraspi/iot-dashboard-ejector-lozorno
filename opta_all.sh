@@ -3,7 +3,7 @@ set -e
 
 PORT="/dev/ttyACM0"
 FQBN="arduino:mbed_opta:opta"
-PROJECT="/home/pi/apps/iot_dashboard/PWM_PID"
+PROJECT="$(cd "$(dirname "$0")" && pwd)/PWM_PID"
 BAUD="115200"
 
 echo "=============================="

@@ -1,3 +1,5 @@
+let tickInFlight = false;
+
 async function fetchJSON(url){
   const r = await fetch(url,{cache:"no-store"});
   if(!r.ok) throw new Error("HTTP "+r.status);
@@ -9,24 +11,41 @@ async function postJSON(url,data){
   const r = await fetch(url,{
     method:"POST",
     headers:{"Content-Type":"application/json"},
-    body:JSON.stringify(data)
+    body:JSON.stringify(data),
+    cache:"no-store"
   });
 
-  return await r.json();
+  const body = await r.json().catch(() => ({}));
+
+  if(!r.ok){
+    throw new Error(body.detail || ("HTTP "+r.status));
+  }
+
+  return body;
 }
 
 
 /* ================= RENDER ================= */
 
+function escapeHtml(s){
+  return String(s)
+    .replace(/&/g,"&amp;")
+    .replace(/</g,"&lt;")
+    .replace(/>/g,"&gt;")
+    .replace(/"/g,"&quot;");
+}
+
+/** name "NA" / prázdny (case insensitive) = nezobrazovať v HMI */
+function isRelayVisible(label){
+  if(label === undefined || label === null) return false;
+  const n = String(label).trim().toLowerCase();
+  return n !== "" && n !== "na";
+}
+
 function renderRelayControl(el,data){
 
-  const relay = data.relay_state;
+  const relay = data.relay_state || {};
   const names = data.relay_names || {};
-
-  if(!relay){
-    el.innerHTML="<tr><td colspan=4>No relay data</td></tr>";
-    return;
-  }
 
   let html=`
   <tr>
@@ -37,48 +56,49 @@ function renderRelayControl(el,data){
   </tr>
   `;
 
-  const keys = Object.keys(relay).filter(k => k.startsWith("r"));
+  let visible = 0;
 
-  keys.sort();
+  for(let i=1;i<=8;i++){
 
-  for(const key of keys){
-
-    const r = relay[key];
-
-    if(!r) continue;
-
+    const key = "r"+i;
     const label = names[key] ?? key;
 
-    const state = r.state == 1;
+    if(!isRelayVisible(label)) continue;
+
+    const r = relay[key] || {state:0, source:"hmi"};
+    const state = Number(r.state) === 1;
+    const source = (r.source ?? "hmi") || "hmi";
 
     const stateTxt = state
       ? '<span class="relay-on">ON</span>'
       : '<span class="relay-off">OFF</span>';
 
-    const source = r.source ?? "";
-
     let actionTxt="";
 
-    if(source==="hmi" || source==="init"){
-
+    // manuálne ovládanie pre hmi / prázdny source; auto len badge
+    if(source === "auto"){
+      actionTxt=`<span class="badge-auto">${escapeHtml(source)}</span>`;
+    }else{
       actionTxt=`
         <button onclick="setRelay('${key}',1)">ON</button>
         <button onclick="setRelay('${key}',0)">OFF</button>
       `;
-
-    }else{
-
-      actionTxt=`<span class="badge-auto">${source}</span>`;
     }
 
     html+=`
     <tr>
-      <td>${label}</td>
+      <td>${escapeHtml(label)}</td>
       <td>${stateTxt}</td>
-      <td>${source}</td>
+      <td>${escapeHtml(source)}</td>
       <td>${actionTxt}</td>
     </tr>
     `;
+
+    visible++;
+  }
+
+  if(visible === 0){
+    html += `<tr><td colspan="4">No relays</td></tr>`;
   }
 
   el.innerHTML=html;
@@ -89,15 +109,36 @@ function renderRelayControl(el,data){
 
 async function setRelay(name,state){
 
-  await postJSON("/api/relay/set",{name:name,state:state});
+  try{
 
-  tick();
+    const result = await postJSON("/api/relay/set",{name:name,state:state});
+
+    if(result.status && result.status !== "ok"){
+      throw new Error(result.detail || result.status);
+    }
+
+    // počkaj na voľný tick (max ~1 s), potom vynúť refresh
+    for(let i=0;i<10 && tickInFlight;i++){
+      await new Promise(r => setTimeout(r, 100));
+    }
+
+    tickInFlight = false;
+    await tick();
+
+  }catch(e){
+
+    console.error("setRelay failed:", e);
+    alert("Relay set failed: " + (e.message || e));
+  }
 }
 
 
 /* ================= LOOP ================= */
 
 async function tick(){
+
+  if(tickInFlight) return;
+  tickInFlight = true;
 
   try{
 
@@ -115,12 +156,20 @@ async function tick(){
 
     document.getElementById("lastUpdate").textContent="ERROR";
     console.error(e);
+
+  }finally{
+
+    tickInFlight = false;
   }
 }
 
 
 /* ================= START ================= */
 
+const RELAY_REFRESH_MS = (typeof REFRESH_MS === "number" && REFRESH_MS > 0)
+  ? REFRESH_MS
+  : 2000;
+
 tick();
 
-setInterval(tick,2000);
+setInterval(tick, RELAY_REFRESH_MS);

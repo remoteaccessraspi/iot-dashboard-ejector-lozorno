@@ -177,10 +177,14 @@ def set_relay_source_only_if_auto(conn, name, new_source="hmi"):
 
 def eval_relay(rcfg, data, now, prev_state=0):
     logic = str(rcfg.get("logic", "OR")).upper()
-    rules = rcfg.get("rules", [])
+    rules = rcfg.get("rules", []) or []
 
     if logic not in ("OR", "AND"):
         logic = "OR"
+
+    # prázdne rules nesmú zopnúť relé (AND by inak vrátil 1)
+    if not rules:
+        return 0
 
     final = False if logic == "OR" else True
 

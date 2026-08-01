@@ -30,7 +30,11 @@ def compute_pressure(i, a, b):
     if i is None:
         return None
 
-    # clamp 4–20 mA
+    # pod ~3.5 mA = odpojený / chybný kanál — nie fyzikálna hodnota
+    if i < 3.5:
+        return None
+
+    # clamp horný okraj; dolný okraj rozsahu 4–20 mA
     if i < 4.0:
         i = 4.0
     if i > 20.0:
@@ -78,16 +82,27 @@ class CurrentLoopDevice(BaseDevice):
             print("Current read error:", rr)
             return
 
-        regs = rr.registers
+        if not hasattr(rr, "registers"):
+            print("Current invalid response:", rr)
+            return
+
+        expected = int(self.reg_cfg["count"])
+
+        if len(rr.registers) != expected:
+            print("Current wrong register count:", len(rr.registers), "expected", expected)
+            return
+
+        regs = list(rr.registers)
 
         if self.reg_cfg.get("signed", False):
             regs = [(v - 0x10000 if v >= 0x8000 else v) for v in regs]
 
         currents = [v * self.reg_cfg["scale"] for v in regs]
 
-        if not currents:
-            print("No current values")
-            return
+        while len(currents) < 8:
+            currents.append(None)
+
+        currents = currents[:8]
 
         pressures = [None] * 8
 
@@ -99,6 +114,9 @@ class CurrentLoopDevice(BaseDevice):
                 continue
 
             i_val = currents[i_index]
+
+            if i_val is None:
+                continue
 
             pressures[p_index] = compute_pressure(
                 i_val,
@@ -130,11 +148,12 @@ class CurrentLoopDevice(BaseDevice):
                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 """, (ts, current_loop_id, *pressures))
 
-            db_conn.commit()
-
             print("DB insert OK")
 
         except Exception as e:
 
             print("DB WRITE ERROR:", e)
-            db_conn.rollback()
+            try:
+                db_conn.rollback()
+            except Exception:
+                pass

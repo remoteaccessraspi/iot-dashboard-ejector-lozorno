@@ -1,0 +1,18 @@
+[Unit]
+Description=IoT Dashboard HMI (ejector-lozorno)
+After=network.target mariadb.service
+Wants=mariadb.service
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+WorkingDirectory=/home/pi/iot-dashboard-ejector-lozorno
+ExecStart=/home/pi/iot-dashboard-ejector-lozorno/.venv/bin/uvicorn app:app --host 0.0.0.0 --port 8000
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

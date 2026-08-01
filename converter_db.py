@@ -32,6 +32,9 @@ def compute_p(i_value, a, b):
     if i_value is None:
         return None
 
+    if i_value < 3.5:
+        return None
+
     i_clamped = max(4.0, min(20.0, i_value))
     scale = (i_clamped - 4.0) / 16.0
 
@@ -41,6 +44,15 @@ def compute_p(i_value, a, b):
 def main():
 
     cfg = load_cfg()
+
+    if not bool(cfg.get("features", {}).get("converter", False)):
+        print(
+            "iot-converter disabled (features.converter=false); "
+            "conversion is handled by CurrentLoopDevice. Idle."
+        )
+        while True:
+            time.sleep(3600)
+
     db = cfg["database"]
 
     conv = cfg.get("conversion", {})

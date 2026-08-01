@@ -2,6 +2,8 @@
 // FETCH
 // =====================================================
 
+let tickInFlight = false;
+
 async function fetchJSON(url){
 
   const r = await fetch(url,{cache:"no-store"});
@@ -9,6 +11,14 @@ async function fetchJSON(url){
   if(!r.ok) throw new Error("HTTP "+r.status);
 
   return await r.json();
+}
+
+function escapeHtml(s){
+  return String(s)
+    .replace(/&/g,"&amp;")
+    .replace(/</g,"&lt;")
+    .replace(/>/g,"&gt;")
+    .replace(/"/g,"&quot;");
 }
 
 
@@ -99,8 +109,8 @@ function renderTable(el,names,values,units=null){
 
     html+=`
       <tr>
-        <td style="text-align:left">${label}</td>
-        <td>${vtxt}${unitTxt}</td>
+        <td style="text-align:left">${escapeHtml(label)}</td>
+        <td>${escapeHtml(vtxt)}${escapeHtml(unitTxt)}</td>
       </tr>
     `;
 
@@ -158,7 +168,7 @@ function renderRelayTable(el,names,states,modes){
 
     html+=`
       <tr>
-        <td style="text-align:left">${name}</td>
+        <td style="text-align:left">${escapeHtml(name)}</td>
         <td>${stateTxt}</td>
         <td>${modeTxt}</td>
       </tr>
@@ -208,6 +218,9 @@ function setDb(status){
 // =====================================================
 
 async function tick(){
+
+  if(tickInFlight) return;
+  tickInFlight = true;
 
   try{
 
@@ -339,6 +352,10 @@ async function tick(){
     }
 
     setDb("ERR");
+
+  }finally{
+
+    tickInFlight = false;
   }
 
 }

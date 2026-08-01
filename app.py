@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -43,10 +43,14 @@ _cfg = load_cfg()
 
 _db_cfg = _cfg["database"]
 
-_refresh_ms = _cfg.get("hmi", {}).get("refresh_ms", 2000)
+_hmi_cfg = _cfg.get("hmi", {})
+_refresh_ms = _hmi_cfg.get("refresh_ms", 2000)
+_control_enabled = bool(_hmi_cfg.get("control_enabled", True))
 
 # relay names z YAML
 _relay_names = _cfg.get("relay", {}).get("names", {})
+
+templates.env.globals["control_enabled"] = _control_enabled
 
 
 # --------------------------------------------------
@@ -154,6 +158,9 @@ def monitor(request: Request):
 
 @app.get("/control", response_class=HTMLResponse)
 def control_page(request: Request):
+
+    if not _control_enabled:
+        raise HTTPException(status_code=404, detail="Control HMI disabled")
 
     return templates.TemplateResponse(
         "control.html",
@@ -305,8 +312,15 @@ SELECT
     t.t1,t.t2,t.t3,t.t4,t.t5,t.t6,t.t7,t.t8,
     p.p1,p.p2,p.p3,p.p4,p.p5,p.p6,p.p7,p.p8
 FROM temperature t
-LEFT JOIN conversion_table p
-ON p.ts = t.ts
+LEFT JOIN (
+    SELECT c.ts, c.p1, c.p2, c.p3, c.p4, c.p5, c.p6, c.p7, c.p8
+    FROM conversion_table c
+    INNER JOIN (
+        SELECT ts, MAX(id) AS id
+        FROM conversion_table
+        GROUP BY ts
+    ) latest ON latest.id = c.id
+) p ON p.ts = t.ts
 WHERE t.ts >= %s
 ORDER BY t.ts
 """
@@ -373,6 +387,8 @@ def api_history(hours: int = 24):
 @app.get("/api/live")
 def api_live(minutes: int = 10):
 
+    minutes = max(1, min(int(minutes or 10), 180))
+
     start = datetime.now() - timedelta(minutes=minutes)
 
     conn = None
@@ -421,6 +437,9 @@ def api_live(minutes: int = 10):
 @app.post("/api/control/save_all")
 async def api_control_save_all(data: ControlParams):
 
+    if not _control_enabled:
+        raise HTTPException(status_code=404, detail="Control HMI disabled")
+
     conn = None
 
     try:
@@ -431,7 +450,9 @@ async def api_control_save_all(data: ControlParams):
 
             ts = datetime.now()
 
-            for param, value in data.dict().items():
+            payload = data.model_dump() if hasattr(data, "model_dump") else data.dict()
+
+            for param, value in payload.items():
 
                 if value is None:
                     continue
@@ -472,7 +493,17 @@ async def api_control_save_all(data: ControlParams):
 async def api_relay_set(data: dict):
 
     name = data.get("name")
-    state = int(data.get("state", 0))
+    allowed = {f"r{i}" for i in range(1, 9)}
+
+    if name not in allowed:
+        raise HTTPException(status_code=400, detail="Invalid relay name")
+
+    try:
+        state = int(data.get("state", 0))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Invalid relay state")
+
+    state = 1 if state else 0
 
     conn = None
 

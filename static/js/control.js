@@ -4,7 +4,7 @@ async function fetchJSON(url){
 
   try{
 
-    const r = await fetch(url);
+    const r = await fetch(url,{cache:"no-store"});
 
     if(!r.ok){
       throw new Error("HTTP " + r.status);
@@ -30,7 +30,8 @@ async function postData(url,data){
       headers:{
         "Content-Type":"application/json"
       },
-      body:JSON.stringify(data)
+      body:JSON.stringify(data),
+      cache:"no-store"
     });
 
     if(!r.ok){
@@ -64,6 +65,18 @@ function getValueSafe(id){
   }
 
   return el.value;
+}
+
+
+function parseOptionalNumber(raw){
+
+  if(raw === null || raw === undefined) return null;
+
+  const s = String(raw).trim();
+  if(s === "") return null;
+
+  const n = Number(s);
+  return Number.isFinite(n) ? n : null;
 }
 
 
@@ -114,23 +127,15 @@ async function loadControlValues(){
 
 async function saveAll(){
 
-  const pwm_period = Number(getValueSafe("pwm_period"));
-  const pwm_duty   = Number(getValueSafe("pwm_duty"));
+  const payload = {
+    pwm_period: parseOptionalNumber(getValueSafe("pwm_period")),
+    pwm_duty:   parseOptionalNumber(getValueSafe("pwm_duty")),
+    pid_t_set:  parseOptionalNumber(getValueSafe("pid_t_set")),
+    pid_t_full: parseOptionalNumber(getValueSafe("pid_t_full")),
+    pid_t_move: parseOptionalNumber(getValueSafe("pid_t_move")),
+  };
 
-  const pid_t_set  = Number(getValueSafe("pid_t_set"));
-  const pid_t_full = Number(getValueSafe("pid_t_full"));
-  const pid_t_move = Number(getValueSafe("pid_t_move"));
-
-  const result = await postData("/api/control/save_all",{
-
-    pwm_period: pwm_period,
-    pwm_duty: pwm_duty,
-
-    pid_t_set: pid_t_set,
-    pid_t_full: pid_t_full,
-    pid_t_move: pid_t_move
-
-  });
+  const result = await postData("/api/control/save_all", payload);
 
   if(result.status === "ok"){
 
