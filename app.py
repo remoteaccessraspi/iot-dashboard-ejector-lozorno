@@ -6,10 +6,11 @@ from fastapi.templating import Jinja2Templates
 from pathlib import Path
 from datetime import datetime, timedelta
 
-import yaml
 import math
 
 import pymysql
+
+from iot_core.core.config import load_config
 
 
 # --------------------------------------------------
@@ -17,7 +18,6 @@ import pymysql
 # --------------------------------------------------
 
 BASE_DIR = Path(__file__).resolve().parent
-SETTINGS_PATH = BASE_DIR / "config" / "settings.yaml"
 
 app = FastAPI()
 
@@ -36,16 +36,11 @@ templates = Jinja2Templates(
 # LOAD CONFIG
 # --------------------------------------------------
 
-def load_cfg():
-    return yaml.safe_load(SETTINGS_PATH.read_text(encoding="utf-8"))
-
 def current_cfg():
-    return load_cfg()
+    return load_config()
 
 
 _cfg = current_cfg()
-
-_db_cfg = _cfg["database"]
 
 _hmi_cfg = _cfg.get("hmi", {})
 _refresh_ms = _hmi_cfg.get("refresh_ms", 2000)
@@ -55,13 +50,17 @@ _refresh_ms = _hmi_cfg.get("refresh_ms", 2000)
 # DB CONNECT
 # --------------------------------------------------
 
+# Údaje sa čítajú pri každom spojení, aby rotácia hesla nevyžadovala restart.
 def db_connect():
+
+    db_cfg = current_cfg()["database"]
+
     return pymysql.connect(
-        host=_db_cfg["host"],
-        port=int(_db_cfg.get("port", 3306)),
-        user=_db_cfg["user"],
-        password=_db_cfg["password"],
-        database=_db_cfg["name"],
+        host=db_cfg["host"],
+        port=int(db_cfg.get("port", 3306)),
+        user=db_cfg["user"],
+        password=db_cfg["password"],
+        database=db_cfg["name"],
         autocommit=True,
         cursorclass=pymysql.cursors.DictCursor,
     )

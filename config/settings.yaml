@@ -27,11 +27,12 @@ modbus:
       count: 8
       scale: 0.001
       signed: false
+# user a password sú v config/secrets.yaml, ktorý nie je verzovaný.
+# Vzor je v config/secrets.yaml.example. Prepísať ich vie aj prostredie
+# cez EJECTOR_DB_USER a EJECTOR_DB_PASSWORD.
 database:
   host: 127.0.0.1
   port: 3306
-  user: dbapp
-  password: admin
   name: ejector
 
 # conversion robí CurrentLoopDevice — samostatný converter vypnutý (inak duplicitné riadky)

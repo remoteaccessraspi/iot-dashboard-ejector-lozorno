@@ -50,6 +50,24 @@ PYTHONPATH=. .venv/bin/python scripts/test_gd20_pid.py
 sudo systemctl start iot-master
 ```
 
+## Credentials
+
+Database user and password live in `config/secrets.yaml`, which is not tracked.
+`config/settings.yaml` holds only non-secret values (host, port, database name).
+
+```bash
+cp config/secrets.yaml.example config/secrets.yaml
+chmod 600 config/secrets.yaml
+```
+
+Environment variables take precedence over both files, which is the simplest way
+to inject credentials from a systemd `EnvironmentFile`:
+`EJECTOR_DB_HOST`, `EJECTOR_DB_PORT`, `EJECTOR_DB_USER`, `EJECTOR_DB_PASSWORD`,
+`EJECTOR_DB_NAME`.
+
+Credentials are read on every connection, so rotating the password does not
+require restarting the services.
+
 ## Database
 
 ```bash

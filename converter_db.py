@@ -1,16 +1,9 @@
 #!/usr/bin/env python3
 import time
-from datetime import datetime, UTC
-from pathlib import Path
 
-import yaml
 import pymysql
 
-SETTINGS_PATH = Path(__file__).resolve().parent / "config" / "settings.yaml"
-
-
-def load_cfg():
-    return yaml.safe_load(SETTINGS_PATH.read_text(encoding="utf-8"))
+from iot_core.core.config import load_config as load_cfg
 
 
 def db_connect(db):
