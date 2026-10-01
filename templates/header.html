@@ -1,8 +1,5 @@
 <div class="nav">
-  <a href="/">Monitoring</a>
-  {% if control_enabled %}
-  <a href="/control">Control</a>
-  {% endif %}
-  <a href="/relay">Relay</a>
-  <a href="/graph">Graph</a>
+  <a href="/" {% if request.url.path == '/' %}class="active"{% endif %}>Monitoring</a>
+  <a href="/graph" {% if request.url.path == '/graph' %}class="active"{% endif %}>Graph</a>
+  <a href="/gd20" {% if request.url.path == '/gd20' %}class="active"{% endif %}>INVT GD20</a>
 </div>

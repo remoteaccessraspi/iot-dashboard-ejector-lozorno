@@ -9,7 +9,7 @@
 
 {% include "header.html" %}
 
-<div class="title">IOT HMI – t (°C), i (mA), p</div>
+<div class="title">IOT HMI</div>
 
 <div class="meta">
   Auto refresh: <span id="refreshMs"></span> ms |
@@ -39,23 +39,8 @@
 
   <!-- PRESSURE -->
   <div class="card">
-    <div class="title">Converted</div>
+    <div class="title">Pressures</div>
     <table id="pTable"></table>
-  </div>
-
-  <!-- RELAYS -->
-  <div class="card">
-    <div class="title">Relays</div>
-    <table id="relayTable">
-      <thead>
-        <tr>
-          <th>Name</th>
-          <th>State</th>
-          <th>Mode</th>
-        </tr>
-      </thead>
-      <tbody id="relayBody"></tbody>
-    </table>
   </div>
 
 </div>

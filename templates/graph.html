@@ -58,7 +58,7 @@
 {% set idx = loop.index %}
 {% if name and name|trim|lower != "na" %}
 <label>
-<input type="checkbox" value="t{{ idx }}">
+<input type="checkbox" value="t{{ idx }}" data-label="{{ name }}">
 {{ name }}{% if t_units[idx-1] %} ({{ t_units[idx-1] }}){% endif %}
 </label><br>
 {% endif %}
@@ -76,11 +76,29 @@
 {% set idx = loop.index %}
 {% if name and name|trim|lower != "na" %}
 <label>
-<input type="checkbox" value="p{{ idx }}">
+<input type="checkbox" value="p{{ idx }}" data-label="{{ name }}">
 {{ name }}{% if p_units[idx-1] %} ({{ p_units[idx-1] }}){% endif %}
 </label><br>
 {% endif %}
 {% endfor %}
+
+</div>
+
+
+<!-- GD20 -->
+<div>
+
+<b>INVT GD20</b><br>
+
+<label>
+<input type="checkbox" value="gd20_ai2" data-label="{{ ai2_label }}">
+{{ ai2_label }} (kPa)
+</label><br>
+
+<label>
+<input type="checkbox" value="gd20_pid_feedback" data-label="{{ pid_label }}">
+{{ pid_label }} (kPa)
+</label><br>
 
 </div>
 

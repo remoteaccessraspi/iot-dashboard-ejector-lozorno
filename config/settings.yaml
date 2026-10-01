@@ -6,12 +6,12 @@ modbus:
   parity: N
   stopbits: 1
   timeout_sec: 0.55
+  # Spoločná perióda jedného poll cyklu (rovnaký timestamp pre všetky zariadenia).
+  poll_period_s: 5
 
   slaves:
     temperature_slave_id: 2
     current_slave_id: 3
-    opta_slave_id: 1
-    waveshare_relay_slave_id: 4
 
   registers:
     temperature:
@@ -34,17 +34,12 @@ database:
   password: admin
   name: ejector
 
-# Opta / PWM-PID na Lozorne nie je pripojená
 # conversion robí CurrentLoopDevice — samostatný converter vypnutý (inak duplicitné riadky)
-# Waveshare relé modul na zbernici zatiaľ neodpovedá
 features:
-  opta: false
   converter: false
-  waveshare: false
 
 hmi:
   refresh_ms: 2000
-  control_enabled: false
 
 #
 # ------------------------
@@ -55,34 +50,35 @@ hmi:
 channels:
 
   # --- Teploty ---
-  t1: { name: "t1", unit: "°C" }
-  t2: { name: "t2", unit: "°C" }
-  t3: { name: "t3", unit: "°C" }
-  t4: { name: "t4", unit: "°C" }
-  t5: { name: "t5", unit: "°C" }
-  t6: { name: "t6", unit: "°C" }
-  t7: { name: "t7", unit: "°C" }
-  t8: { name: "t8", unit: "°C" }
+  t1: { name: "t_evap_in", unit: "°C" }
+  t2: { name: "t_gen_out", unit: "°C" }
+  t3: { name: "t_gen_in", unit: "°C" }
+  t4: { name: "t_control", unit: "°C" }
+  t5: { name: "t_cond_out", unit: "°C" }
+  t6: { name: "t_cond_in", unit: "°C" }
+  t7: { name: "t_evap_out", unit: "°C" }
+  t8: { name: "NA", unit: "°C" }
 
   # --- Tlaky (z i1–i8 cez conversion) ---
-  p1: { name: "p1", unit: "kPa" }
-  p2: { name: "p2", unit: "kPa" }
-  p3: { name: "p3", unit: "kPa" }
-  p4: { name: "p4", unit: "kPa" }
-  p5: { name: "p5", unit: "kPa" }
-  p6: { name: "p6", unit: "kPa" }
-  p7: { name: "p7", unit: "kPa" }
-  p8: { name: "p8", unit: "kPa" }
+  p1: { name: "NA", unit: "kPa" }
+  p2: { name: "NA", unit: "kPa" }
+  p3: { name: "NA", unit: "kPa" }
+  p4: { name: "NA", unit: "kPa" }
+  p5: { name: "NA", unit: "kPa" }
+  p6: { name: "p_gen_prim", unit: "kPa (0-1500)" }
+  p8: { name: "p_cond_prim", unit: "kPa (0-400)" }
+  p7: { name: "p_evap_prim", unit: "kPa (0-220)" }
+
 
   # --- Prúdy 4–20 mA ---
-  i1: { name: "i1", unit: "mA" }
-  i2: { name: "i2", unit: "mA" }
-  i3: { name: "i3", unit: "mA" }
-  i4: { name: "i4", unit: "mA" }
-  i5: { name: "i5", unit: "mA" }
-  i6: { name: "i6", unit: "mA" }
-  i7: { name: "i7", unit: "mA" }
-  i8: { name: "i8", unit: "mA" }
+  i1: { name: "NA", unit: "mA" }
+  i2: { name: "NA", unit: "mA" }
+  i3: { name: "NA", unit: "mA" }
+  i4: { name: "NA", unit: "mA" }
+  i5: { name: "NA", unit: "mA" }
+  i6: { name: "p_gen_prim", unit: "mA (4-20)" }
+  i7: { name: "p_evap_prim", unit: "mA (4-20)" }
+  i8: { name: "p_cond_prim", unit: "mA (4-20)" }
 
 conversion:
   interval_sec: 1
@@ -94,132 +90,318 @@ conversion:
     p3: { source: i3, a: 4.0, b: 20.0 }
     p4: { source: i4, a: 4.0, b: 20.0 }
     p5: { source: i5, a: 4.0, b: 20.0 }
-    p6: { source: i6, a: 4.0, b: 20.0 }
-    p7: { source: i7, a: 4.0, b: 20.0 }
-    p8: { source: i8, a: 4.0, b: 20.0 } 
+    p6: { source: i6, a: 0, b: 1500.0 }
+    p7: { source: i7, a: 0, b: 220.0 }
+    p8: { source: i8, a: 0, b: 400.0 } 
 
-# ------------------------
-# RELÉ
-# ------------------------
-relay:
-  count: 8
-  default_state: 0
-  # Dočasné aliasy (zapojenie ešte nie je definitívne)
-  names:
-    r1: "re1"
-    r2: "re2"
-    r3: "re3"
-    r4: "re4"
-    r5: "re5"
-    r6: "re6"
-    r7: "re7"
-    r8: "re8"
-     # ----------------------------------------
-  # RIADENIE RELÉ
-  # ----------------------------------------
+# INVT GD20-EU na spoločnom Modbus RTU masteri.
+# Setpoint ide cez Modbus 0x2002. Spätná väzba PID je vlastný analógový vstup meniča, nie P6.
+invt_gd20:
+  enabled: true
+  slave_id: 100
 
+  polling:
+    # História GD20. Čítanie ide v cykle modbus.poll_period_s, nie vlastným intervalom.
+    history_interval_s: 30
 
-  control:
+  pressure:
+    unit: "kPa"
+    min_kpa: 0
+    max_kpa: 1500
+    signal_min_ma: 4
+    signal_max_ma: 20
+    feedback_input: "AI2"
+    feedback_min_percent: 0
+    feedback_max_percent: 100
+    # Prúdový AI GD20 reportuje v 0x300C/0x300D ako ekvivalent 0–10 V pre 0–20 mA.
+    # V = raw * scale, mA = V / 10 * 20, potom 4–20 mA -> min_kpa..max_kpa.
+    ai_report_min_v: 0
+    ai_report_max_v: 10
+    ai_report_min_ma: 0
+    ai_report_max_ma: 20
 
-    # ---- R1 AUTO ----
-    r1:
-      mode: manual
-      logic: OR
-      
+  pid_defaults:
+    # GD20 používa Kp, Ti, Td. Factory defaults podľa manuálu GD20-EU.
+    # Pri štarte sa do meniča nezapisujú, aktuálny stav VFD má prednosť.
+    kp: 1.00
+    ti_s: 0.10
+    td_s: 0.00
 
-      rules:
+  commands:
 
-        # pravidlo 1 (AND podmienky)
-        - time:
-            from: "06:00"
-            to:   "21:00"
-          conditions:
-            - { source: t3, min: 66, max: 100, hyst: 2.5 }
+    control:
+      alias: "control_command"
+      address: 0x2000
+      access: "write"
+      values:
+        run_forward: 0x0001
+        run_reverse: 0x0002
+        stop: 0x0005
+        coast_stop: 0x0006
+        fault_reset: 0x0007
 
+    pid_reference:
+      alias: "pid_reference_command"
+      address: 0x2002
+      access: "read_write"
+      raw_min: 0
+      raw_max: 1000
+      scale: 0.1
+      unit: "%"
+      engineering_unit: "kPa"
+      engineering_min: 0
+      engineering_max: 1500
 
-    # ---- R2 MANUAL ----
-    r2:
-      mode: manual
+    pid_feedback_command:
+      alias: "pid_feedback_command"
+      address: 0x2003
+      access: "read_write"
+      raw_min: 0
+      raw_max: 1000
+      scale: 0.1
+      unit: "%"
+      enabled: false
 
-    r3:
-      mode: manual
+  monitoring:
 
-    r4:
-      mode: manual
- 
+    running_frequency:
+      alias: "frequency_actual_hz"
+      address: 0x3000
+      access: "read"
+      scale: 0.01
+      unit: "Hz"
 
-    r5:
-      mode: manual
+    set_frequency:
+      alias: "frequency_set_hz"
+      address: 0x3001
+      access: "read"
+      scale: 0.01
+      unit: "Hz"
 
-    r6:
-      mode: manual
-      logic: OR
-      
+    dc_bus_voltage:
+      alias: "dc_bus_voltage_v"
+      address: 0x3002
+      access: "read"
+      scale: 0.1
+      unit: "V"
 
-      rules:
+    output_voltage:
+      alias: "output_voltage_v"
+      address: 0x3003
+      access: "read"
+      scale: 1.0
+      unit: "V"
 
-        # pravidlo 1 (AND podmienky)
-        - time:
-            from: "06:00"
-            to:   "21:00"
-          conditions:
-            - { source: p5, min: 266.805, max: 10000, hyst: 23.513 }
+    output_current:
+      alias: "output_current_a"
+      address: 0x3004
+      access: "read"
+      scale: 0.1
+      unit: "A"
 
-    r7:
-      mode: manual
-      logic: OR
-      
+    motor_speed:
+      alias: "motor_speed_rpm"
+      address: 0x3005
+      access: "read"
+      scale: 1
+      unit: "rpm"
 
-      rules:
+    output_power:
+      alias: "output_power_percent"
+      address: 0x3006
+      access: "read"
+      signed: true
+      scale: 0.1
+      unit: "%"
 
-        # pravidlo 1 (AND podmienky)
-        - time:
-            from: "06:00"
-            to:   "21:00"
-          conditions:
-            - { source: t3, min: 66, max: 100, hyst: 2.5 }
+    output_torque:
+      alias: "output_torque_percent"
+      address: 0x3007
+      access: "read"
+      signed: true
+      scale: 0.1
+      unit: "%"
 
-    r8:
-      mode: manual
-# ------------------------
-# PWM
-# ------------------------
-pwm:
-  period:
-    default: 6000
-    min: 100
-    max: 10000
-    step: 100
-    unit: "ms"
+    pid_setting:
+      alias: "pid_setpoint_percent"
+      address: 0x3008
+      access: "read"
+      signed: true
+      scale: 0.1
+      unit: "%"
+      engineering_alias: "pid_setpoint_kpa"
+      engineering_unit: "kPa"
 
-  duty:
-    default: 12.8
-    min: 0
-    max: 100
-    step: 0.1
-    unit: "%"
+    pid_feedback:
+      alias: "pid_feedback_percent"
+      address: 0x3009
+      access: "read"
+      signed: true
+      scale: 0.1
+      unit: "%"
+      engineering_alias: "pid_feedback_kpa"
+      engineering_unit: "kPa"
 
-# ------------------------
-# PID
-# ------------------------
-pid:
-  t_set:
-    default: 1.0
-    min: 0.0
-    max: 100.0
-    step: 0.1
+    digital_input_state:
+      alias: "digital_input_state"
+      address: 0x300A
+      access: "read"
+      scale: 1
 
-  t_full:
-    default: 0.1
-    min: 0.0
-    max: 10.0
-    step: 0.01
+    ai1:
+      alias: "ai1_value"
+      address: 0x300C
+      access: "read"
+      scale: 0.01
 
-  t_move:
-    default: 0.01
-    min: 0.0
-    max: 10.0
-    step: 0.01
+    ai2:
+      alias: "ai2_value"
+      address: 0x300D
+      access: "read"
+      scale: 0.01
+      unit: "V"
+
+    fault_code:
+      alias: "fault_code"
+      address: 0x5000
+      access: "read"
+      scale: 1
+
+  parameters:
+
+    run_command_source:
+      alias: "run_command_source"
+      parameter: "P00.01"
+      address: 0x0001
+      access: "read_write"
+      required_value: 2
+
+    max_frequency:
+      alias: "max_frequency_hz"
+      parameter: "P00.03"
+      address: 0x0003
+      access: "read_write"
+      scale: 0.01
+      unit: "Hz"
+
+    upper_frequency_limit:
+      alias: "upper_frequency_limit_hz"
+      parameter: "P00.04"
+      address: 0x0004
+      access: "read_write"
+      scale: 0.01
+      unit: "Hz"
+
+    lower_frequency_limit:
+      alias: "lower_frequency_limit_hz"
+      parameter: "P00.05"
+      address: 0x0005
+      access: "read_write"
+      scale: 0.01
+      unit: "Hz"
+
+    frequency_source_a:
+      alias: "frequency_source_a"
+      parameter: "P00.06"
+      address: 0x0006
+      access: "read_write"
+      required_value: 7
+
+    acceleration_time:
+      alias: "acceleration_time_s"
+      parameter: "P00.11"
+      address: 0x000B
+      access: "read_write"
+      scale: 0.1
+      unit: "s"
+
+    deceleration_time:
+      alias: "deceleration_time_s"
+      parameter: "P00.12"
+      address: 0x000C
+      access: "read_write"
+      scale: 0.1
+      unit: "s"
+
+    pid_reference_source:
+      alias: "pid_reference_source"
+      parameter: "P09.00"
+      address: 0x0900
+      access: "read_write"
+      required_value: 6
+
+    pid_feedback_source:
+      alias: "pid_feedback_source"
+      parameter: "P09.02"
+      address: 0x0902
+      access: "read_write"
+      required_value: 1
+
+    pid_direction:
+      alias: "pid_direction"
+      parameter: "P09.03"
+      address: 0x0903
+      access: "read_write"
+
+    pid_kp:
+      alias: "pid_kp"
+      parameter: "P09.04"
+      address: 0x0904
+      access: "read_write"
+      scale: 0.01
+      min: 0.00
+      max: 100.00
+      default: 1.00
+
+    pid_ti:
+      alias: "pid_ti_s"
+      parameter: "P09.05"
+      address: 0x0905
+      access: "read_write"
+      scale: 0.01
+      unit: "s"
+      min: 0.00
+      max: 10.00
+      default: 0.10
+
+    pid_td:
+      alias: "pid_td_s"
+      parameter: "P09.06"
+      address: 0x0906
+      access: "read_write"
+      scale: 0.01
+      unit: "s"
+      min: 0.00
+      max: 10.00
+      default: 0.00
+
+    modbus_address:
+      alias: "modbus_slave_id"
+      parameter: "P14.00"
+      address: 0x0E00
+      access: "read_write"
+
+    modbus_baudrate:
+      alias: "modbus_baudrate_code"
+      parameter: "P14.01"
+      address: 0x0E01
+      access: "read_write"
+      required_value: 3
+
+    modbus_format:
+      alias: "modbus_format_code"
+      parameter: "P14.02"
+      address: 0x0E02
+      access: "read_write"
+      required_value: 0
+
+    communication_timeout:
+      alias: "communication_timeout_s"
+      parameter: "P14.04"
+      address: 0x0E04
+      access: "read_write"
+      scale: 0.1
+      unit: "s"
 
 # ============================================================
 # PLC APLIKÁCIA – KOMPLETNÁ DOKUMENTÁCIA KONFIGURÁCIE
@@ -436,7 +618,7 @@ pid:
 
 
 # ============================================================
-# 11. PID KONFIGURÁCIA
+# 11. LEGACY / OPTA PID – NETÝKA SA INVT GD20
 # ============================================================
 # pid:
 #   t_set:

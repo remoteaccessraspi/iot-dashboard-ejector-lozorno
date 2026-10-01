@@ -21,9 +21,8 @@ pip install -r "$REQ"
 
 echo "Restarting services..."
 sudo systemctl restart iot-master
-sudo systemctl restart relay-engine
 sudo systemctl restart iot-dashboard
 # iot-converter is intentionally disabled (conversion in CurrentLoopDevice)
 
 echo "Update complete."
-systemctl --no-pager --full status iot-master relay-engine iot-dashboard || true
+systemctl --no-pager --full status iot-master iot-dashboard || true

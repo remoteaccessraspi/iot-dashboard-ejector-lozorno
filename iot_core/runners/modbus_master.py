@@ -5,42 +5,9 @@ from iot_core.core.config import load_config
 from iot_core.db.connection import get_connection
 from iot_core.modbus.client import wait_for_client
 
-from iot_core.devices.opta_pid import OptaPID
 from iot_core.devices.temperature import TemperatureDevice
 from iot_core.devices.current_loop import CurrentLoopDevice
-from iot_core.devices.waveshare_relay import WaveshareRelay
-
-
-# --------------------------------------------------
-# RELAY MODE SYNC (YAML -> DB)
-# --------------------------------------------------
-
-def sync_relay_modes(conn, relay_cfg):
-
-    print("Sync relay modes with YAML")
-
-    control = relay_cfg.get("control", {})
-
-    cur = conn.cursor()
-
-    for name, cfg in control.items():
-
-        mode = cfg.get("mode", "manual")
-
-        if mode == "auto":
-
-            print("Relay", name, "-> AUTO")
-
-            cur.execute(
-                """
-                UPDATE relay_state
-                SET source='auto'
-                WHERE name=%s
-                """,
-                (name,)
-            )
-
-    conn.commit()
+from iot_core.devices.invt_gd20 import InvtGd20Device
 
 
 # --------------------------------------------------
@@ -85,13 +52,6 @@ def main():
 
     db_conn = get_connection()
 
-    # --------------------------------------------------
-    # SYNC RELAY MODES
-    # --------------------------------------------------
-
-    if "relay" in cfg:
-        sync_relay_modes(db_conn, cfg["relay"])
-
     client = wait_for_client(retry_sec=5.0)
 
     timeout = float(modbus_cfg.get("timeout_sec", 0.3))
@@ -106,9 +66,6 @@ def main():
     # --------------------------------------------------
 
     slaves_cfg = modbus_cfg["slaves"]
-    features = cfg.get("features", {})
-    opta_enabled = bool(features.get("opta", True))
-    waveshare_enabled = bool(features.get("waveshare", True))
 
     temperature = TemperatureDevice(
         slave_id=slaves_cfg["temperature_slave_id"],
@@ -130,29 +87,21 @@ def main():
         current_loop,
     ]
 
-    if opta_enabled:
-        devices.append(OptaPID(slave_id=slaves_cfg["opta_slave_id"]))
-    else:
-        print("Opta disabled (features.opta=false) — skipping slave ID",
-              slaves_cfg.get("opta_slave_id"))
+    gd20_cfg = cfg.get("invt_gd20") or {}
 
-    if waveshare_enabled:
+    if gd20_cfg.get("enabled"):
         devices.append(
-            WaveshareRelay(slave_id=slaves_cfg["waveshare_relay_slave_id"])
-        )
-    else:
-        print(
-            "Waveshare disabled (features.waveshare=false) — skipping slave ID",
-            slaves_cfg.get("waveshare_relay_slave_id"),
+            InvtGd20Device(
+                slave_id=int(gd20_cfg["slave_id"]),
+                device_cfg=gd20_cfg,
+            )
         )
 
     print(
         f"Modbus Master started "
-        f"(ID1={slaves_cfg['opta_slave_id']}{' OFF' if not opta_enabled else ''}, "
-        f"ID2={slaves_cfg['temperature_slave_id']}, "
+        f"(ID2={slaves_cfg['temperature_slave_id']}, "
         f"ID3={slaves_cfg['current_slave_id']}, "
-        f"ID4={slaves_cfg['waveshare_relay_slave_id']}"
-        f"{' OFF' if not waveshare_enabled else ''})"
+        f"GD20={gd20_cfg.get('slave_id') if gd20_cfg.get('enabled') else 'off'})"
     )
 
     print("Devices:", [d.__class__.__name__ for d in devices])
@@ -161,8 +110,10 @@ def main():
     # POLL PARAMETERS
     # --------------------------------------------------
 
-    PERIOD = 5.0
+    PERIOD = float(modbus_cfg["poll_period_s"])
     FRAME_DELAY = 0.03
+
+    print("Poll period:", PERIOD, "s")
 
     # --------------------------------------------------
     # MAIN LOOP

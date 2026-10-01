@@ -26,16 +26,31 @@ function escapeHtml(s){
 // FORMAT
 // =====================================================
 
+function unitKind(unit){
+
+  const u=String(unit||"").trim().toLowerCase();
+
+  if(u.startsWith("kpa")) return "kPa";
+  if(u.startsWith("pa")) return "Pa";
+  if(u.startsWith("bar")) return "bar";
+  if(u.startsWith("ma")) return "mA";
+
+  return "";
+}
+
+
 function fmt(v,unit=null){
 
   if(v===null || v===undefined) return null;
   if(typeof v!=="number") return String(v);
   if(!Number.isFinite(v)) return String(v);
 
-  if(unit==="Pa") return v.toFixed(0);
-  if(unit==="kPa") return v.toFixed(1);
-  if(unit==="bar") return v.toFixed(3);
-  if(unit==="mA") return v.toFixed(2);
+  const kind=unitKind(unit);
+
+  if(kind==="Pa") return v.toFixed(0);
+  if(kind==="kPa") return v.toFixed(1);
+  if(kind==="bar") return v.toFixed(3);
+  if(kind==="mA") return v.toFixed(2);
 
   return v.toFixed(1);
 }
@@ -85,6 +100,8 @@ function isStale(dbTimeStr,serverTimeStr,thresholdSec=10){
 
 function renderTable(el,names,values,units=null){
 
+  if(!el) return;
+
   let html="<tr><th>Channel</th><th>Value</th></tr>";
 
   if(!values || !Array.isArray(values)){
@@ -127,66 +144,6 @@ function renderTable(el,names,values,units=null){
   }
 
   el.innerHTML=html;
-}
-
-
-// =====================================================
-// RELAY TABLE
-// =====================================================
-
-function renderRelayTable(el,names,states,modes){
-
-  const tbody=document.getElementById("relayBody");
-
-  if(!tbody) return;
-
-  let html="";
-  let visible=0;
-
-  if(!states || !Array.isArray(states)){
-    tbody.innerHTML=html;
-    return;
-  }
-
-  for(let i=0;i<states.length;i++){
-
-    const name=names ? safeName(names[i]) : `R${i+1}`;
-
-    if(name===null) continue;
-
-    const state=states[i]===1;
-
-    const mode=modes && modes[i] ? modes[i] : "manual";
-
-    const stateTxt=state
-      ? '<span class="relay-on">ON</span>'
-      : '<span class="relay-off">OFF</span>';
-
-    const modeTxt=mode==="auto"
-      ? '<span class="badge-auto">AUTO</span>'
-      : '<span class="badge-manual">Man</span>';
-
-    html+=`
-      <tr>
-        <td style="text-align:left">${escapeHtml(name)}</td>
-        <td>${stateTxt}</td>
-        <td>${modeTxt}</td>
-      </tr>
-    `;
-
-    visible++;
-  }
-
-  if(visible===0){
-
-    html+=`
-      <tr>
-        <td colspan="3">No relays</td>
-      </tr>
-    `;
-  }
-
-  tbody.innerHTML=html;
 }
 
 
@@ -295,50 +252,7 @@ async function tick(){
       data.p_units
     );
 
-
-    // --------------------------------------------------
-    // RELAY TABLE (convert relay_state)
-    // --------------------------------------------------
-
-    if(data.relay_state){
-
-      const names=[];
-      const states=[];
-      const modes=[];
-
-      const relayNames = data.relay_names || {};
-
-      for(let i=1;i<=8;i++){
-
-        const key="r"+i;
-
-        const r=data.relay_state[key];
-
-        // použijeme názov zo settings.yaml
-        const label = relayNames[key] ?? key;
-
-        names.push(label);
-
-        if(r){
-
-          states.push(r.state);
-
-          modes.push(r.source==="auto" ? "auto" : "manual");
-
-        }else{
-
-          states.push(0);
-          modes.push("manual");
-        }
-      }
-
-      renderRelayTable(
-        document.getElementById("relayTable"),
-        names,
-        states,
-        modes
-      );
-    }
+    renderGd20(data.gd20, data.server_time);
 
   }
   catch(e){
@@ -362,8 +276,179 @@ async function tick(){
 
 
 // =====================================================
+// GD20 CARD
+// =====================================================
+
+function gd20Num(value, digits){
+
+  if(value===null || value===undefined || !Number.isFinite(value)) return "-";
+
+  return Number(value).toFixed(digits);
+}
+
+
+function renderGd20(gd20, serverTime){
+
+  const last=document.getElementById("gd20LastDb");
+  const status=document.getElementById("gd20Status");
+  const table=document.getElementById("gd20Table");
+
+  if(!table || !status) return;
+
+  if(!gd20){
+    if(last) last.textContent="-";
+    status.innerHTML='<span class="pill bad">OFFLINE</span>';
+    table.innerHTML="<tr><td colspan=\"2\">No data</td></tr>";
+    return;
+  }
+
+  if(last){
+    last.textContent=gd20.updated_ts || "-";
+    if(gd20.online!==1 || isStale(gd20.updated_ts, serverTime, 15)){
+      last.style.color="#b00020";
+      last.style.fontWeight="700";
+    }else{
+      last.style.color="";
+      last.style.fontWeight="";
+    }
+  }
+
+  const online = gd20.online===1
+    ? '<span class="pill ok">ONLINE</span>'
+    : '<span class="pill bad">OFFLINE</span>';
+  const run = gd20.running===1
+    ? '<span class="pill ok">RUN</span>'
+    : '<span class="pill idle">STOP</span>';
+  const fault = (gd20.fault_code===null || gd20.fault_code===0)
+    ? '<span class="pill ok">NO FAULT</span>'
+    : `<span class="pill bad">FAULT ${escapeHtml(gd20.fault_code)}</span>`;
+
+  status.innerHTML = online + run + fault;
+
+  const rows = [
+    ["Setpoint", gd20Num(gd20.pid_setpoint_kpa, 1), "kPa"],
+    ["Setpoint command", gd20Num(gd20.setpoint_command_kpa, 1), "kPa"],
+    ["PID feedback", gd20Num(gd20.pid_feedback_kpa, 1), "kPa"],
+    [gd20.ai2_alias || "ai2_value", gd20Num(gd20.ai2_kpa, 1), "kPa"],
+    ["Frequency", gd20Num(gd20.frequency_actual_hz, 2), "Hz"],
+    ["Set frequency", gd20Num(gd20.frequency_set_hz, 2), "Hz"],
+    ["Current", gd20Num(gd20.output_current_a, 1), "A"],
+    ["Output voltage", gd20Num(gd20.output_voltage_v, 0), "V"],
+    ["DC bus", gd20Num(gd20.dc_bus_voltage_v, 1), "V"],
+    ["Speed", gd20.motor_speed_rpm===null || gd20.motor_speed_rpm===undefined ? "-" : String(gd20.motor_speed_rpm), "rpm"],
+  ];
+
+  let html="<tr><th>Value</th><th></th></tr>";
+
+  for(const [label, value, unit] of rows){
+    html += `
+      <tr>
+        <td>${escapeHtml(label)}</td>
+        <td>${escapeHtml(value)} ${escapeHtml(unit)}</td>
+      </tr>
+    `;
+  }
+
+  table.innerHTML = html;
+}
+
+
+async function sendGd20(run){
+
+  const runBtn=document.getElementById("gd20Run");
+  const stopBtn=document.getElementById("gd20Stop");
+  const note=document.getElementById("gd20Cmd");
+
+  if(runBtn) runBtn.disabled=true;
+  if(stopBtn) stopBtn.disabled=true;
+
+  try{
+    const r = await fetch("/api/gd20/command",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({run:run}),
+      cache:"no-store"
+    });
+
+    if(!r.ok) throw new Error("HTTP "+r.status);
+
+    if(note) note.textContent = run ? "RUN queued" : "STOP queued";
+  }
+  catch(e){
+    if(note) note.textContent = "Command error";
+    console.error(e);
+  }
+  finally{
+    if(runBtn) runBtn.disabled=false;
+    if(stopBtn) stopBtn.disabled=false;
+  }
+}
+
+
+async function sendGd20Setpoint(){
+
+  const input=document.getElementById("gd20Setpoint");
+  const button=document.getElementById("gd20Set");
+  const note=document.getElementById("gd20Cmd");
+  const setpoint=input ? Number(input.value) : NaN;
+  const low=typeof GD20_SETPOINT_MIN==="number" ? GD20_SETPOINT_MIN : 0;
+  const high=typeof GD20_SETPOINT_MAX==="number" ? GD20_SETPOINT_MAX : 1500;
+
+  if(!Number.isFinite(setpoint) || setpoint<low || setpoint>high){
+    if(note) note.textContent=`Setpoint must be ${low}..${high} kPa`;
+    return;
+  }
+
+  if(button) button.disabled=true;
+
+  try{
+    const r = await fetch("/api/gd20/setpoint",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({setpoint_kpa:setpoint}),
+      cache:"no-store"
+    });
+
+    if(!r.ok) throw new Error("HTTP "+r.status);
+
+    if(note) note.textContent=`Setpoint ${setpoint} kPa queued`;
+  }
+  catch(e){
+    if(note) note.textContent="Setpoint error";
+    console.error(e);
+  }
+  finally{
+    if(button) button.disabled=false;
+  }
+}
+
+
+function bindGd20Buttons(){
+
+  const runBtn=document.getElementById("gd20Run");
+  const stopBtn=document.getElementById("gd20Stop");
+  const setBtn=document.getElementById("gd20Set");
+  const input=document.getElementById("gd20Setpoint");
+
+  if(runBtn) runBtn.addEventListener("click", () => sendGd20(true));
+  if(stopBtn) stopBtn.addEventListener("click", () => sendGd20(false));
+  if(setBtn) setBtn.addEventListener("click", () => sendGd20Setpoint());
+  if(input){
+    input.addEventListener("keydown", (event) => {
+      if(event.key==="Enter"){
+        event.preventDefault();
+        sendGd20Setpoint();
+      }
+    });
+  }
+}
+
+
+// =====================================================
 // START
 // =====================================================
+
+bindGd20Buttons();
 
 tick();
 

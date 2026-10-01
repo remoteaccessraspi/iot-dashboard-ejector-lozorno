@@ -84,6 +84,21 @@ function autoScale(minVal, maxVal) {
 // SELECTED CHANNELS
 //--------------------------------------------------
 
+function channelLabel(ch) {
+
+    const boxes = document.querySelectorAll("input[type=checkbox]")
+
+    for (const cb of boxes) {
+
+        if (cb.value.toLowerCase() !== ch) continue
+
+        const label = (cb.dataset.label || "").trim()
+        if (label) return label
+    }
+
+    return ch.toUpperCase()
+}
+
 function getSelected(prefix) {
 
     let result = []
@@ -201,7 +216,7 @@ function buildSeries(data) {
         })
 
         datasets.push({
-            label: ch.toUpperCase(),
+            label: channelLabel(ch),
             data: values,
             yAxisID: "yTemp",
             pointRadius: 0,
@@ -231,11 +246,48 @@ function buildSeries(data) {
         })
 
         datasets.push({
-            label: ch.toUpperCase(),
+            label: channelLabel(ch),
             data: values,
             yAxisID: "yPress",
             pointRadius: 0,
             spanGaps: false,
+            tension: 0.2
+        })
+    }
+
+    const gd20Keys = {
+        gd20_ai2: "ai2_kpa",
+        gd20_pid_feedback: "pid_feedback_kpa"
+    }
+
+    for (const ch of getSelected("gd20_")) {
+
+        const key = gd20Keys[ch]
+
+        if (!key || !data.gd20 || !data.gd20[key]) continue
+
+        let raw = limitData(data.gd20[key])
+
+        if (raw.length > labels.length)
+            raw = raw.slice(-labels.length)
+        else if (raw.length < labels.length)
+            raw = Array(labels.length - raw.length).fill(null).concat(raw)
+
+        let values = avgFilter(raw, 5)
+
+        values.forEach(v => {
+            if (v != null && Number.isFinite(v)) {
+                if (v < pressMin) pressMin = v
+                if (v > pressMax) pressMax = v
+            }
+        })
+
+        datasets.push({
+            label: channelLabel(ch),
+            data: values,
+            yAxisID: "yPress",
+            pointRadius: 0,
+            spanGaps: true,
             tension: 0.2
         })
     }

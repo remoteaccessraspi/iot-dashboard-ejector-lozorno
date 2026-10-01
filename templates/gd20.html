@@ -1,0 +1,50 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>IOT HMI - INVT GD20</title>
+  <link rel="stylesheet" href="{{ request.url_for('static', path='css/style.css') }}">
+</head>
+<body>
+
+{% include "header.html" %}
+
+<div class="title">INVT GD20</div>
+
+<div class="meta">
+  Auto refresh: <span id="refreshMs"></span> ms |
+  Last update: <span id="lastUpdate">-</span> |
+  DB: <span id="dbStatus" class="pill bad">?</span>
+</div>
+
+<div class="row">
+
+  <div class="card">
+    <div class="small">
+      Last DB write: <span id="gd20LastDb">-</span>
+    </div>
+    <div id="gd20Status" class="status-row"></div>
+    <table id="gd20Table"></table>
+    <div class="actions">
+      <input id="gd20Setpoint" type="number" min="{{ setpoint_min }}" max="{{ setpoint_max }}" step="0.1" inputmode="decimal" aria-label="Setpoint kPa" placeholder="Setpoint kPa">
+      <button id="gd20Set" type="button">SET</button>
+    </div>
+    <div class="actions">
+      <button id="gd20Run" class="btn-run" type="button">RUN</button>
+      <button id="gd20Stop" class="btn-stop" type="button">STOP</button>
+    </div>
+    <div class="small" id="gd20Cmd"></div>
+  </div>
+
+</div>
+
+<script>
+const REFRESH_MS = {{ refresh_ms }};
+const GD20_SETPOINT_MIN = {{ setpoint_min }};
+const GD20_SETPOINT_MAX = {{ setpoint_max }};
+</script>
+
+<script src="{{ request.url_for('static', path='js/main.js') }}"></script>
+
+</body>
+</html>

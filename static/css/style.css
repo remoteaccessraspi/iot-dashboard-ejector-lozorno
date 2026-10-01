@@ -116,11 +116,7 @@ table tr > *:first-child * {
 /* BADGES / PILLS */
 /* ============================= */
 
-.pill,
-.relay-on,
-.relay-off,
-.badge-auto,
-.badge-manual {
+.pill {
   display:inline-block;
   padding:10px 18px; 
   border-radius:999px; 
@@ -130,12 +126,7 @@ table tr > *:first-child * {
 
 .pill.ok { background:#1b5e20; color:#ffffff; }
 .pill.bad { background:#b71c1c; color:#ffffff; }
-
-.relay-on { background:#00c853; color:white; }
-.relay-off { background:#d50000; color:white; }
-
-.badge-auto { background:#2979ff; color:white; }
-.badge-manual { background:#616161; color:white; }
+.pill.idle { background:#424242; color:#ffffff; }
 
 /* ============================= */
 /* NAV */
@@ -155,6 +146,11 @@ table tr > *:first-child * {
 
 .nav a:hover {
   color: #ffffff;
+}
+
+.nav a.active {
+  color: #90caf9;
+  border-bottom: 3px solid #2a7fbc;
 }
 
 /* ============================= */
@@ -206,6 +202,31 @@ button {
   background: #2979ff;
   color: white;
   cursor: pointer;
+}
+
+.actions {
+  display: flex;
+  gap: 12px;
+}
+
+.actions button,
+.actions input[type="number"] {
+  flex: 1;
+  width: auto;
+}
+
+button.btn-run { background: #2e7d32; }
+button.btn-stop { background: #c62828; }
+
+button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.status-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
 }
 
 /* ============================= */
