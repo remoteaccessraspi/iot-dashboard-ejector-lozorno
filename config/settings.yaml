@@ -23,7 +23,7 @@ modbus:
 
     current_loop:
       function: holding_registers
-      address: 96      # ⚠ toto môže byť 8, 16 alebo iné – podľa manuálu
+      address: 96      # overené v prevádzke, nemeniť bez merania na module
       count: 8
       scale: 0.001
       signed: false
@@ -66,8 +66,8 @@ channels:
   p4: { name: "NA", unit: "kPa" }
   p5: { name: "NA", unit: "kPa" }
   p6: { name: "p_gen_prim", unit: "kPa (0-1500)" }
-  p8: { name: "p_cond_prim", unit: "kPa (0-400)" }
   p7: { name: "p_evap_prim", unit: "kPa (0-220)" }
+  p8: { name: "p_cond_prim", unit: "kPa (0-400)" }
 
 
   # --- Prúdy 4–20 mA ---
@@ -85,6 +85,8 @@ conversion:
   # a = kPa pri 4 mA, b = kPa pri 20 mA
   # p = a + (i - 4) * (b - a) / 16
   channels:
+    # p1–p5 nemajú pripojený snímač. a/b sú zástupné hodnoty, ktoré len
+    # prepíšu mA na seba samé; pri zapojení snímača nastav skutočný rozsah.
     p1: { source: i1, a: 4.0, b: 20.0 }
     p2: { source: i2, a: 4.0, b: 20.0 }
     p3: { source: i3, a: 4.0, b: 20.0 }
@@ -402,260 +404,3 @@ invt_gd20:
       access: "read_write"
       scale: 0.1
       unit: "s"
-
-# ============================================================
-# PLC APLIKÁCIA – KOMPLETNÁ DOKUMENTÁCIA KONFIGURÁCIE
-# ============================================================
-
-
-# ============================================================
-# 1. ARCHITEKTÚRA SYSTÉMU
-# ============================================================
-# Systém pozostáva z:
-# • Modbus RTU komunikácie
-# • Databázy (MariaDB)
-# • Konverzie 4–20 mA → fyzikálne veličiny
-# • Relay rule engine s časovými pravidlami
-# • PWM riadenia
-# • PID regulátora
-# • Web aplikácie (app.py)
-#
-# Bezpečnostná logika (enable väzby) je pevne definovaná v kóde.
-# YAML slúži iba na konfiguráciu.
-
-
-# ============================================================
-# 2. MODBUS KONFIGURÁCIA
-# ============================================================
-# modbus:
-#   method: rtu
-#   port: /dev/serial/by-id/...
-#   baudrate: 19200
-#   parity: N
-#   stopbits: 1
-#   timeout_sec: 1
-#
-# Slaves:
-#   temperature_slave_id: 2
-#   current_slave_id: 3
-#   opta_slave_id: 1
-#
-# Register map:
-# temperature:
-#   function: holding_registers
-#   address: 2
-#   count: 8
-#   signed: true
-#
-# current_loop:
-#   function: holding_registers
-#   address: 96
-#   count: 8
-#   signed: false
-#
-# Význam:
-# • function = typ Modbus funkcie
-# • address = počiatočná adresa
-# • count = počet registrov
-# • signed = či je hodnota so znamienkom
-
-
-# ============================================================
-# 3. KONVERZNÉ KANÁLY (4–20 mA)
-# ============================================================
-# Prúd sa ukladá do databázy už v mA.
-# Príklad:
-#   4000 → 4.000 mA
-#
-# scale sa nepoužíva.
-#
-# Definícia:
-#   p1: { source: i1, a: 0.0, b: 100000.0 }
-#
-# a = hodnota pri 4 mA
-# b = hodnota pri 20 mA
-#
-# Extrapolácia NIE JE POVOLENÁ.
-#
-# Clampovanie:
-#   ak i < 4.0  → i = 4.0
-#   ak i > 20.0 → i = 20.0
-#
-# Výpočet:
-#   p = a + (i - 4.0) * (b - a) / 16.0
-#
-# 16 = (20 - 4)
-#
-# Systém nikdy negeneruje hodnoty mimo fyzikálneho rozsahu.
-
-
-# ============================================================
-# 4. RELAY SEKČIA – ZÁKLADY
-# ============================================================
-# relay:
-#   count: 8
-#   default_state: 0
-#
-# names:
-#   r1: "Enable PWM (FIXED)"
-#   r2: "Enable PID (FIXED)"
-#   r3: "Valve 1"
-#   r4: "Heater"
-#   r5: "Spare 1"
-#   r6: "Spare 2"
-#   r7: "Spare 3"
-#   r8: "Spare 4"
-#
-# count = počet relé
-# default_state = stav po štarte (0 vypnuté, 1 zapnuté)
-
-
-# ============================================================
-# 5. FIXNÉ RELÉ – ENABLE MAP
-# ============================================================
-# r1 = ENABLE PWM
-# r2 = ENABLE PID
-#
-# Tieto väzby sú pevne definované v kóde.
-# YAML ich nesmie meniť.
-#
-# Ak:
-#   r1 = 0 → PWM je blokované
-#   r2 = 0 → PID je blokované
-#
-# Aj keď ostatné podmienky platia.
-
-
-# ============================================================
-# 6. RELAY – MODE A LOGIC
-# ============================================================
-# mode:
-#   manual → riadi obsluha
-#   auto   → riadi rule engine
-#
-# logic:
-#   OR  → stačí splnenie jedného rule
-#   AND → musia byť splnené všetky rule
-
-
-# ============================================================
-# 7. RELAY – PRAVIDLÁ (RULES)
-# ============================================================
-# Štruktúra:
-#
-# rules:
-#   - time:
-#       from: "HH:MM"
-#       to:   "HH:MM"
-#     conditions:
-#       - { source: X, min: A, max: B, hyst: H }
-#
-# Každé rule MUSÍ mať časový blok.
-
-
-# ============================================================
-# 8. ČASOVÉ OBMEDZENIE
-# ============================================================
-# Formát času:
-#   HH:MM (24 hodinový formát)
-#   vždy dvojmiestne (06:00, nie 6:00)
-#
-# Príklady:
-#   06:00 → 18:00
-#   22:00 → 04:00 (cez polnoc)
-#   00:00 → 24:00 (celý deň)
-#
-# 24:00 = 1440 minút od polnoci
-#
-# Vyhodnotenie:
-#   minúty = HH * 60 + MM
-#
-# Interval bez polnoci:
-#   from ≤ now < to
-#
-# Interval cez polnoc:
-#   now ≥ from OR now < to
-#
-# Ak:
-#   from = "00:00"
-#   to   = "24:00"
-# → pravidlo platí 24 hodín denne
-
-
-# ============================================================
-# 9. HYSTERÉZIA
-# ============================================================
-# Relé sa zapne keď:
-#   min ≤ hodnota ≤ max
-#
-# Relé sa vypne keď:
-#   hodnota < (min - hyst)
-#   alebo
-#   hodnota > (max + hyst)
-#
-# Hysterézia zabraňuje kmitaniu relé.
-
-
-# ============================================================
-# 10. PWM KONFIGURÁCIA
-# ============================================================
-# pwm:
-#   period:
-#     default: 6000
-#     min: 100
-#     max: 10000
-#     step: 100
-#     unit: ms
-#
-#   duty:
-#     default: 50
-#     min: 0
-#     max: 100
-#     step: 1
-#     unit: %
-#
-# PWM je aktívne len ak r1 = 1.
-
-
-# ============================================================
-# 11. LEGACY / OPTA PID – NETÝKA SA INVT GD20
-# ============================================================
-# pid:
-#   t_set:
-#     default: 1.0
-#     min: 0.0
-#     max: 100.0
-#     step: 0.1
-#
-#   t_full:
-#     default: 0.1
-#     min: 0.0
-#     max: 10.0
-#     step: 0.01
-#
-#   t_move:
-#     default: 0.01
-#     min: 0.0
-#     max: 10.0
-#     step: 0.01
-#
-# PID je aktívne len ak r2 = 1.
-
-
-# ============================================================
-# 12. PRODUKČNÉ ZÁSADY
-# ============================================================
-# • Žiadna extrapolácia 4–20 mA
-# • Všetky rule majú časový blok
-# • Hysterézia je povinná
-# • r1 a r2 sú fixné systémové relé
-# • YAML nemení bezpečnostnú logiku
-# • Systém nesmie generovať fyzikálne nemožné hodnoty
-#
-# ============================================================
-# KONIEC DOKUMENTÁCIE
-# ============================================================#test
-#test
-#test
-#test
-#test
