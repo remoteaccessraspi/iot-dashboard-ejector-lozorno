@@ -11,10 +11,10 @@ pydantic==2.12.5
 pydantic_core==2.41.5
 pymodbus==3.12.1
 PyMySQL==1.1.2
+pyserial==3.5
 python-multipart==0.0.22
 PyYAML==6.0.3
 starlette==0.52.1
 typing-inspection==0.4.2
 typing_extensions==4.15.0
 uvicorn==0.41.0
-pymodbus==3.12.1

@@ -72,6 +72,7 @@ CREATE TABLE `conversion_table` (
   `p7` float DEFAULT NULL,
   `p8` float DEFAULT NULL,
   PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_current_loop_id` (`current_loop_id`),
   KEY `idx_ts` (`ts`),
   KEY `idx_current_loop_id` (`current_loop_id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=104293 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Converted physical quantities calculated from current_loop';
