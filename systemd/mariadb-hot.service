@@ -1,0 +1,31 @@
+[Unit]
+Description=MariaDB hot instance (tmpfs, port 3307)
+Documentation=file:/home/pi/iot-dashboard-ejector-lozorno/config/mariadb-hot.cnf
+After=local-fs.target
+Conflicts=shutdown.target
+
+[Service]
+Type=notify
+User=mysql
+Group=mysql
+AmbientCapabilities=CAP_IPC_LOCK
+ProtectSystem=full
+ProtectHome=true
+PrivateNetwork=false
+UMask=007
+
+# "+" vypne ProtectHome, inak systemd skripty v /home/pi vôbec nevidí.
+ExecStartPre=+/home/pi/iot-dashboard-ejector-lozorno/scripts/mariadb-hot-prepare.sh
+ExecStart=/usr/sbin/mariadbd --defaults-file=/etc/mysql/mariadb-hot.cnf
+ExecStartPost=+/home/pi/iot-dashboard-ejector-lozorno/scripts/mariadb-hot-schema.sh
+
+KillSignal=SIGTERM
+SendSIGKILL=no
+Restart=on-abnormal
+RestartSec=5s
+TimeoutStartSec=120
+TimeoutStopSec=60
+LimitNOFILE=32768
+
+[Install]
+WantedBy=multi-user.target

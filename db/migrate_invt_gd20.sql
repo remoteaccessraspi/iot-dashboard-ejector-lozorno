@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS invt_gd20_state (
 
     online TINYINT NOT NULL DEFAULT 0,
     running TINYINT NOT NULL DEFAULT 0,
+    status_code INT DEFAULT NULL COMMENT 'Raw Goodrive status word 0x2100: 1 forward run, 2 reverse run, 3 stop, 4 fault, 5 POFF, 6 pre-exciting',
     fault_code INT DEFAULT NULL,
 
     pid_setpoint_kpa FLOAT DEFAULT NULL,
@@ -40,6 +41,7 @@ CREATE TABLE IF NOT EXISTS invt_gd20 (
     device_id SMALLINT UNSIGNED NOT NULL DEFAULT 100,
 
     running TINYINT NOT NULL DEFAULT 0,
+    status_code INT DEFAULT NULL COMMENT 'Raw Goodrive status word 0x2100: 1 forward run, 2 reverse run, 3 stop, 4 fault, 5 POFF, 6 pre-exciting',
     fault_code INT DEFAULT NULL,
 
     pid_setpoint_kpa FLOAT DEFAULT NULL,
@@ -82,6 +84,16 @@ ALTER TABLE invt_gd20_state
 ALTER TABLE invt_gd20
     MODIFY COLUMN ai2_kpa FLOAT DEFAULT NULL
         COMMENT 'AI2 in kPa. 0x300D is 0-10 V equivalent of 0-20 mA (mA = V * 2), then 4-20 mA maps to settings min_kpa/max_kpa';
+
+ALTER TABLE invt_gd20_state
+    ADD COLUMN IF NOT EXISTS status_code INT DEFAULT NULL
+        COMMENT 'Raw Goodrive status word 0x2100: 1 forward run, 2 reverse run, 3 stop, 4 fault, 5 POFF, 6 pre-exciting'
+        AFTER running;
+
+ALTER TABLE invt_gd20
+    ADD COLUMN IF NOT EXISTS status_code INT DEFAULT NULL
+        COMMENT 'Raw Goodrive status word 0x2100: 1 forward run, 2 reverse run, 3 stop, 4 fault, 5 POFF, 6 pre-exciting'
+        AFTER running;
 
 ALTER TABLE invt_gd20_state
     DROP COLUMN IF EXISTS ai2_value;

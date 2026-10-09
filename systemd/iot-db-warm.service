@@ -1,0 +1,18 @@
+[Unit]
+Description=Load last 24h and device state into RAM MariaDB
+After=mariadb.service mariadb-hot.service
+Requires=mariadb.service mariadb-hot.service
+Before=iot-master.service iot-dashboard.service iot-db-archive.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=pi
+Group=pi
+WorkingDirectory=/home/pi/iot-dashboard-ejector-lozorno
+Environment=PYTHONPATH=/home/pi/iot-dashboard-ejector-lozorno
+ExecStart=/home/pi/iot-dashboard-ejector-lozorno/.venv/bin/python -u iot_core/runners/archive_sync.py --backfill
+TimeoutStartSec=180
+
+[Install]
+WantedBy=multi-user.target

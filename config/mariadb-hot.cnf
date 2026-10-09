@@ -1,0 +1,29 @@
+# Druhá inštancia MariaDB, len v RAM. Nečíta ju hlavný server
+# (súbor nie je v /etc/mysql/mariadb.conf.d/).
+# Spúšťa sa výhradne cez: mariadbd --defaults-file=/etc/mysql/mariadb-hot.cnf
+
+[client]
+socket = /run/mysqld/mysqld-hot.sock
+protocol = socket
+
+[mariadb-install-db]
+datadir = /mnt/mysql-hot/data
+user = mysql
+
+[mariadbd]
+user = mysql
+port = 3307
+bind-address = 127.0.0.1
+datadir = /mnt/mysql-hot/data
+socket = /run/mysqld/mysqld-hot.sock
+pid-file = /run/mysqld/mysqld-hot.pid
+tmpdir = /mnt/mysql-hot/tmp
+
+character-set-server = utf8mb4
+collation-server = utf8mb4_unicode_ci
+skip-name-resolve
+skip-log-bin
+
+innodb_buffer_pool_size = 128M
+max_connections = 50
+performance_schema = OFF

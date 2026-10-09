@@ -1,7 +1,7 @@
 [Unit]
 Description=IoT Modbus Master (ejector-lozorno)
-After=network.target mariadb.service
-Wants=mariadb.service
+After=network.target mariadb-hot.service iot-db-warm.service
+Requires=mariadb-hot.service iot-db-warm.service
 
 [Service]
 Type=simple
