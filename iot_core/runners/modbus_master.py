@@ -8,6 +8,7 @@ from iot_core.modbus.client import wait_for_client
 from iot_core.devices.temperature import TemperatureDevice
 from iot_core.devices.current_loop import CurrentLoopDevice
 from iot_core.devices.invt_gd20 import InvtGd20Device
+from iot_core.devices.em2rs_556 import Em2rs556Device
 
 
 # --------------------------------------------------
@@ -97,11 +98,22 @@ def main():
             )
         )
 
+    em2rs_cfg = cfg.get("em2rs_556") or {}
+
+    if em2rs_cfg.get("enabled"):
+        devices.append(
+            Em2rs556Device(
+                slave_id=int(em2rs_cfg["slave_id"]),
+                device_cfg=em2rs_cfg,
+            )
+        )
+
     print(
         f"Modbus Master started "
         f"(ID2={slaves_cfg['temperature_slave_id']}, "
         f"ID3={slaves_cfg['current_slave_id']}, "
-        f"GD20={gd20_cfg.get('slave_id') if gd20_cfg.get('enabled') else 'off'})"
+        f"GD20={gd20_cfg.get('slave_id') if gd20_cfg.get('enabled') else 'off'}, "
+        f"EM2RS={em2rs_cfg.get('slave_id') if em2rs_cfg.get('enabled') else 'off'})"
     )
 
     print("Devices:", [d.__class__.__name__ for d in devices])
@@ -114,6 +126,17 @@ def main():
     FRAME_DELAY = 0.03
 
     print("Poll period:", PERIOD, "s")
+
+    for device in devices:
+
+        if isinstance(device, Em2rs556Device):
+
+            try:
+                device.apply_setup(client, frame_delay_s=FRAME_DELAY)
+            except Exception as e:
+                print("EM2RS setup failed:", e)
+
+            time.sleep(FRAME_DELAY)
 
     # --------------------------------------------------
     # MAIN LOOP

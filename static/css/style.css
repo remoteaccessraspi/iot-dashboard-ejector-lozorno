@@ -112,6 +112,11 @@ table tr > *:first-child * {
   font-weight: 700; 
 }
 
+.steady {
+  color: #90a4ae;
+  font-weight: 500;
+}
+
 /* ============================= */
 /* BADGES / PILLS */
 /* ============================= */
@@ -213,6 +218,120 @@ button {
 .actions input[type="number"] {
   flex: 1;
   width: auto;
+}
+
+.em2rs-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+}
+
+.em2rs-meta .steady:empty {
+  display: none;
+}
+
+#em2rsTable td.em2rs-label {
+  text-align: left !important;
+  width: 14%;
+  vertical-align: middle;
+}
+
+#em2rsTable td.em2rs-value {
+  text-align: right;
+  width: 19%;
+  vertical-align: middle;
+}
+
+#em2rsTable td[rowspan] {
+  vertical-align: top;
+}
+
+.em2rs-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.em2rs-head > .small {
+  min-width: 0;
+}
+
+.em2rs-status-line {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-left: auto;
+  flex: 0 0 auto;
+}
+
+.em2rs-status-line .status-row {
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
+}
+
+.em2rs-status-line #em2rsReset {
+  flex: 0 0 auto;
+  width: auto;
+  max-width: none;
+  height: auto;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 10px 18px;
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.6;
+}
+
+.em2rs-actions {
+  width: 100%;
+  margin-bottom: 8px;
+  align-items: center;
+}
+
+.em2rs-actions button,
+.em2rs-actions input[type="number"] {
+  height: auto;
+  padding: 10px 18px;
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.6;
+}
+
+.em2rs-actions input[type="number"] {
+  padding: 8px 16px;
+}
+
+.em2rs-set-label {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  white-space: nowrap;
+  color: #cfcfcf;
+}
+
+.em2rs-actions input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+.em2rs-actions input[type="number"]::-webkit-outer-spin-button,
+.em2rs-actions input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.em2rs-actions button.em2rs-step {
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 2.6rem;
+  padding: 10px 14px;
+  font-size: 1rem;
+  line-height: 1.6;
 }
 
 button.btn-run { background: #2e7d32; }

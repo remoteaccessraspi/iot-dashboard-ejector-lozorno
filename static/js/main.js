@@ -253,6 +253,7 @@ async function tick(){
     );
 
     renderGd20(data.gd20, data.server_time);
+    renderEm2rs(data.em2rs, data.server_time);
 
   }
   catch(e){
@@ -448,7 +449,284 @@ function bindGd20Buttons(){
 // START
 // =====================================================
 
+function em2rsNum(value, digits){
+
+  if(value===null || value===undefined || !Number.isFinite(Number(value))) return "-";
+
+  return Number(value).toFixed(digits);
+}
+
+
+function renderEm2rs(em2rs, serverTime){
+
+  const last=document.getElementById("em2rsLastDb");
+  const status=document.getElementById("em2rsStatus");
+  const table=document.getElementById("em2rsTable");
+  const note=document.getElementById("em2rsNote");
+
+  if(!table || !status) return;
+
+  window.em2rsView = em2rs || null;
+
+  if(!em2rs){
+    if(last) last.textContent="-";
+    status.innerHTML='<span class="pill bad">OFFLINE</span>';
+    table.innerHTML="<tr><td class=\"em2rs-label\" colspan=\"6\">No data</td></tr>";
+    applyEm2rsButtons();
+    return;
+  }
+
+  const sample = em2rs.sample_ts || em2rs.updated_ts;
+  const pollStale = em2rs.online!==1 || isStale(sample, serverTime, 15);
+  const unchanged = Boolean(
+    em2rs.sample_ts
+    && em2rs.updated_ts
+    && em2rs.updated_ts !== em2rs.sample_ts
+    && isStale(em2rs.updated_ts, serverTime, 15)
+  );
+  const steady = document.getElementById("em2rsSteady");
+
+  if(last){
+    last.textContent=sample || "-";
+    if(pollStale){
+      last.style.color="#b00020";
+      last.style.fontWeight="700";
+    }else{
+      last.style.color="";
+      last.style.fontWeight="";
+    }
+  }
+
+  if(steady){
+    steady.textContent = (!pollStale && unchanged)
+      ? "Hodnoty sa nezmenili od " + em2rs.updated_ts + "."
+      : "";
+  }
+
+  const online = em2rs.online===1
+    ? '<span class="pill ok">ONLINE</span>'
+    : '<span class="pill bad">OFFLINE</span>';
+  const mode = em2rs.mode==="AUTO"
+    ? '<span class="pill idle">AUTO</span>'
+    : '<span class="pill ok">MANUAL</span>';
+  const run = em2rs.running===1
+    ? '<span class="pill ok">RUNNING</span>'
+    : '<span class="pill idle">STOP</span>';
+  const alarm = em2rs.alarm===1
+    ? `<span class="pill bad">ALARM</span>`
+    : '<span class="pill ok">OK</span>';
+
+  status.innerHTML = online + mode + run + alarm;
+
+  const requested = em2rs.requested_position_pct===null || em2rs.requested_position_pct===undefined
+    ? "-"
+    : `${em2rsNum(em2rs.requested_position_pct, 0)} % / ${em2rs.requested_position_steps ?? "-"}`;
+  const actual = em2rs.actual_position_steps===null || em2rs.actual_position_steps===undefined
+    ? "-"
+    : `${em2rsNum(em2rs.actual_position_pct, 1)} % / ${em2rs.actual_position_steps}`;
+  const check = em2rs.position_check
+    ? `${em2rs.position_check} (${em2rs.actual_delta_steps ?? "-"} / ${em2rs.expected_delta_steps ?? "-"})`
+    : "-";
+
+  const setpoint = em2rs.setpoint_command_kpa===null || em2rs.setpoint_command_kpa===undefined
+    ? "-"
+    : `${em2rsNum(em2rs.setpoint_command_kpa, 1)} kPa`;
+
+  const homing=["Homing", em2rs.position_valid===1 ? "platný" : "potrebný"];
+  const rows = [
+    ["Režim", em2rs.mode || "-"],
+    ["Setpoint p7", setpoint],
+    ["Požadované", requested],
+    ["Skutočné", actual],
+    ["Kontrola pulzov", check],
+    ["Fáza", em2rs.motion_phase || "-"],
+  ];
+
+  const rowCount=Math.ceil(rows.length / 2);
+  let html="";
+  for(let r=0; r<rowCount; r++){
+    const left=rows[r*2];
+    const mid=rows[r*2+1];
+    html += `
+      <tr>
+        <td class="em2rs-label">${left ? escapeHtml(left[0]) : ""}</td>
+        <td class="em2rs-value">${left ? escapeHtml(left[1]) : ""}</td>
+        <td class="em2rs-label">${mid ? escapeHtml(mid[0]) : ""}</td>
+        <td class="em2rs-value">${mid ? escapeHtml(mid[1]) : ""}</td>
+        ${r===0 ? `<td class="em2rs-label" rowspan="${rowCount}">${escapeHtml(homing[0])}</td><td class="em2rs-value" rowspan="${rowCount}">${escapeHtml(homing[1])}</td>` : ""}
+      </tr>
+    `;
+  }
+
+  table.innerHTML = html;
+
+  if(note){
+    if(em2rs.alarm_text){
+      note.textContent = em2rs.alarm_text;
+      note.dataset.kind = "alarm";
+    }else if(note.dataset.kind === "alarm"){
+      note.textContent = "";
+      note.dataset.kind = "";
+    }
+  }
+
+  const setpointInput=document.getElementById("em2rsSetpoint");
+  if(setpointInput && document.activeElement!==setpointInput && setpointInput.dataset.dirty!=="1"){
+    if(em2rs.setpoint_command_kpa!==null && em2rs.setpoint_command_kpa!==undefined){
+      setpointInput.value=String(em2rs.setpoint_command_kpa);
+    }
+  }
+
+  applyEm2rsButtons();
+}
+
+
+function applyEm2rsButtons(){
+
+  const view=window.em2rsView;
+  const blocked = !view || view.mode==="AUTO" || view.running===1 || view.alarm===1;
+  const homing=document.getElementById("em2rsHoming");
+  const setBtn=document.getElementById("em2rsSet");
+  const down=document.getElementById("em2rsDown");
+  const up=document.getElementById("em2rsUp");
+  const input=document.getElementById("em2rsPosition");
+
+  if(homing) homing.disabled=blocked;
+  if(setBtn) setBtn.disabled=blocked;
+  if(down) down.disabled=blocked;
+  if(up) up.disabled=blocked;
+  if(input) input.disabled=blocked;
+}
+
+
+async function sendEm2rs(url, body, okText){
+
+  const note=document.getElementById("em2rsNote");
+
+  try{
+    const r = await fetch(url,{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify(body || {}),
+      cache:"no-store"
+    });
+
+    if(!r.ok){
+      let detail="Command error";
+      try{
+        const payload=await r.json();
+        if(payload && payload.detail) detail=String(payload.detail);
+      }catch(_e){}
+      if(note) note.textContent=detail;
+      return;
+    }
+
+    if(note){
+      note.dataset.kind="local";
+      note.textContent=okText;
+    }
+  }
+  catch(e){
+    if(note) note.textContent="Command error";
+    console.error(e);
+    return false;
+  }
+
+  return true;
+}
+
+
+function bindEm2rsButtons(){
+
+  const manual=document.getElementById("em2rsManual");
+  const auto=document.getElementById("em2rsAuto");
+  const homing=document.getElementById("em2rsHoming");
+  const setBtn=document.getElementById("em2rsSet");
+  const down=document.getElementById("em2rsDown");
+  const up=document.getElementById("em2rsUp");
+  const reset=document.getElementById("em2rsReset");
+  const input=document.getElementById("em2rsPosition");
+  const setpointBtn=document.getElementById("em2rsSetpointSet");
+  const setpointInput=document.getElementById("em2rsSetpoint");
+
+  if(manual) manual.addEventListener("click", () => sendEm2rs("/api/em2rs/mode", {mode:"MANUAL"}, "Manual queued"));
+  if(auto) auto.addEventListener("click", () => sendEm2rs("/api/em2rs/mode", {mode:"AUTO"}, "Auto queued"));
+  if(homing) homing.addEventListener("click", () => sendEm2rs("/api/em2rs/homing", {}, "Homing queued"));
+  if(reset) reset.addEventListener("click", () => sendEm2rs("/api/em2rs/alarm-reset", {}, "Alarm reset queued"));
+  if(setpointBtn) setpointBtn.addEventListener("click", () => sendEm2rsSetpoint());
+  if(setpointInput){
+    setpointInput.addEventListener("input", () => {
+      setpointInput.dataset.dirty="1";
+    });
+    setpointInput.addEventListener("keydown", (event) => {
+      if(event.key==="Enter"){
+        event.preventDefault();
+        sendEm2rsSetpoint();
+      }
+    });
+  }
+  if(setBtn) setBtn.addEventListener("click", () => sendEm2rsPosition());
+  if(down) down.addEventListener("click", () => stepEm2rsPosition(-1));
+  if(up) up.addEventListener("click", () => stepEm2rsPosition(1));
+  if(input){
+    input.addEventListener("keydown", (event) => {
+      if(event.key==="Enter"){
+        event.preventDefault();
+        sendEm2rsPosition();
+      }
+    });
+  }
+}
+
+
+function stepEm2rsPosition(delta){
+
+  const input=document.getElementById("em2rsPosition");
+  if(!input || input.disabled) return;
+
+  const current=Number(input.value);
+  const base=Number.isFinite(current) ? current : 0;
+  const next=Math.min(100, Math.max(0, base + delta));
+  input.value=String(next);
+}
+
+
+function sendEm2rsSetpoint(){
+
+  const input=document.getElementById("em2rsSetpoint");
+  const setpoint=input ? Number(input.value) : NaN;
+  const low=typeof EM2RS_SETPOINT_MIN==="number" ? EM2RS_SETPOINT_MIN : 0;
+  const high=typeof EM2RS_SETPOINT_MAX==="number" ? EM2RS_SETPOINT_MAX : 220;
+
+  if(!Number.isFinite(setpoint) || setpoint<low || setpoint>high){
+    const note=document.getElementById("em2rsNote");
+    if(note) note.textContent=`Setpoint musí byť ${low}..${high} kPa`;
+    return;
+  }
+
+  sendEm2rs("/api/em2rs/setpoint", {setpoint_kpa:setpoint}, `Setpoint ${setpoint} kPa queued`).then((ok) => {
+    if(ok && input) input.dataset.dirty="";
+  });
+}
+
+
+function sendEm2rsPosition(){
+
+  const input=document.getElementById("em2rsPosition");
+  const percent=input ? Number(input.value) : NaN;
+
+  if(!Number.isFinite(percent) || percent<0 || percent>100){
+    const note=document.getElementById("em2rsNote");
+    if(note) note.textContent="Poloha musí byť 0..100 %";
+    return;
+  }
+
+  sendEm2rs("/api/em2rs/position", {position_pct:percent}, `Poloha ${percent} % queued`);
+}
+
+
 bindGd20Buttons();
+bindEm2rsButtons();
 
 tick();
 

@@ -1,0 +1,15 @@
+[Unit]
+Description=IoT kiosk watchdog (ejector-lozorno)
+After=graphical.target iot-dashboard.service lightdm.service
+Wants=iot-dashboard.service
+
+[Service]
+Type=simple
+ExecStart=/home/pi/iot-dashboard-ejector-lozorno/kiosk_watchdog.sh
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=graphical.target

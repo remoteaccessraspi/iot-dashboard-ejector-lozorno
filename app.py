@@ -5,6 +5,7 @@ from fastapi.templating import Jinja2Templates
 
 from pathlib import Path
 from datetime import datetime, timedelta
+import time
 
 import math
 
@@ -168,6 +169,8 @@ def api_latest():
     db_ok = True
     conn = None
     gd20_row = None
+    em2rs_row = None
+    em2rs_sample_ts = None
 
     try:
 
@@ -206,6 +209,24 @@ def api_latest():
             cmd = cur.fetchone()
             gd20_setpoint_command = None if cmd is None else cmd["value"]
 
+            cur.execute(
+                "SELECT value FROM control_state WHERE parameter = %s",
+                ("em2rs_p7_setpoint_kpa",),
+            )
+            em2rs_cmd = cur.fetchone()
+            em2rs_setpoint_command = None if em2rs_cmd is None else em2rs_cmd["value"]
+
+            em2rs_id = int((current_cfg().get("em2rs_556") or {}).get("slave_id", 31))
+            cur.execute(
+                "SELECT * FROM em2rs_556_state WHERE device_id = %s",
+                (em2rs_id,),
+            )
+            em2rs_row = cur.fetchone()
+
+            cur.execute("SELECT ts FROM em2rs_556 ORDER BY id DESC LIMIT 1")
+            sample = cur.fetchone()
+            em2rs_sample_ts = sample["ts"] if sample else None
+
     except:
 
         db_ok = False
@@ -216,6 +237,9 @@ def api_latest():
         i_last = None
         gd20_row = None
         gd20_setpoint_command = None
+        em2rs_setpoint_command = None
+        em2rs_row = None
+        em2rs_sample_ts = None
 
     finally:
 
@@ -249,6 +273,7 @@ def api_latest():
         "i_last_db": i_last.strftime("%Y-%m-%d %H:%M:%S") if i_last else None,
 
         "gd20": gd20_payload(gd20_row, gd20_setpoint_command),
+        "em2rs": em2rs_payload(em2rs_row, em2rs_sample_ts, em2rs_setpoint_command),
     }
 
 
@@ -405,6 +430,235 @@ async def gd20_setpoint(request: Request):
             conn.close()
 
     return {"status": "ok", "setpoint_kpa": setpoint}
+
+
+def _p7_setpoint_limits():
+
+    channel = (
+        (current_cfg().get("conversion") or {})
+        .get("channels", {})
+        .get("p7")
+        or {}
+    )
+
+    return float(channel.get("a", 0)), float(channel.get("b", 220))
+
+
+def em2rs_payload(row, sample_ts=None, setpoint_command=None):
+
+    if not row:
+        return None
+
+    full = int(
+        ((current_cfg().get("em2rs_556") or {}).get("valve") or {}).get("full_travel_steps") or 0
+    )
+    actual = row.get("actual_position_steps")
+    updated = row.get("updated_ts")
+    actual_pct = None if actual is None or not full else actual * 100.0 / full
+
+    return {
+        "device_id": int(row["device_id"]),
+        "online": int(row["online"]),
+        "mode": row.get("mode") or "MANUAL",
+        "setpoint_command_kpa": _num(setpoint_command),
+        "requested_position_pct": _num(row.get("requested_position_pct")),
+        "requested_position_steps": None if row.get("requested_position_steps") is None else int(row["requested_position_steps"]),
+        "actual_position_steps": None if actual is None else int(actual),
+        "actual_position_pct": actual_pct,
+        "expected_delta_steps": None if row.get("expected_delta_steps") is None else int(row["expected_delta_steps"]),
+        "actual_delta_steps": None if row.get("actual_delta_steps") is None else int(row["actual_delta_steps"]),
+        "position_check": row.get("position_check"),
+        "running": int(row.get("running") or 0),
+        "alarm": int(row.get("alarm") or 0),
+        "alarm_text": row.get("alarm_text"),
+        "motion_phase": row.get("motion_phase"),
+        "position_valid": int(row.get("position_valid") or 0),
+        "updated_ts": updated.strftime("%Y-%m-%d %H:%M:%S") if updated else None,
+        "sample_ts": sample_ts.strftime("%Y-%m-%d %H:%M:%S") if sample_ts else None,
+    }
+
+
+def _store_control(parameter, value):
+
+    conn = None
+
+    try:
+
+        conn = db_connect()
+
+        with conn.cursor() as cur:
+
+            cur.execute(
+                """
+                INSERT INTO control (parameter, value, source)
+                VALUES (%s, %s, 'hmi')
+                """,
+                (parameter, value),
+            )
+            cur.execute(
+                """
+                REPLACE INTO control_state (parameter, value, source)
+                VALUES (%s, %s, 'hmi')
+                """,
+                (parameter, value),
+            )
+
+    except Exception as e:
+
+        raise HTTPException(status_code=500, detail="command was not stored") from e
+
+    finally:
+
+        if conn:
+            conn.close()
+
+
+def _em2rs_blocks_motion():
+
+    cfg = current_cfg().get("em2rs_556") or {}
+    device_id = int(cfg.get("slave_id", 31))
+    conn = None
+
+    try:
+
+        conn = db_connect()
+
+        with conn.cursor() as cur:
+
+            cur.execute(
+                """
+                SELECT mode, running, alarm
+                FROM em2rs_556_state
+                WHERE device_id = %s
+                """,
+                (device_id,),
+            )
+            row = cur.fetchone()
+
+    finally:
+
+        if conn:
+            conn.close()
+
+    if not row:
+        return None
+
+    if int(row.get("running") or 0):
+        return "driver beží"
+
+    if int(row.get("alarm") or 0):
+        return "alarm"
+
+    if str(row.get("mode") or "MANUAL").upper() == "AUTO":
+        return "režim Auto"
+
+    return None
+
+
+@app.get("/em2rs", response_class=HTMLResponse)
+def em2rs_page(request: Request):
+
+    setpoint_min, setpoint_max = _p7_setpoint_limits()
+
+    return templates.TemplateResponse(
+        "em2rs.html",
+        {
+            "request": request,
+            "refresh_ms": _refresh_ms,
+            "setpoint_min": setpoint_min,
+            "setpoint_max": setpoint_max,
+            "setpoint_min_label": format(setpoint_min, "g"),
+            "setpoint_max_label": format(setpoint_max, "g"),
+        },
+    )
+
+
+@app.post("/api/em2rs/mode")
+async def em2rs_mode(request: Request):
+
+    body = await request.json()
+    mode = str(body.get("mode", "")).strip().upper()
+
+    if mode not in ("MANUAL", "AUTO"):
+        raise HTTPException(status_code=400, detail="mode must be MANUAL or AUTO")
+
+    _store_control("em2rs_mode", mode)
+
+    return {"status": "ok", "mode": mode}
+
+
+@app.post("/api/em2rs/setpoint")
+async def em2rs_setpoint(request: Request):
+
+    body = await request.json()
+    setpoint = body.get("setpoint_kpa")
+
+    if isinstance(setpoint, bool) or not isinstance(setpoint, (int, float)):
+        raise HTTPException(status_code=400, detail="setpoint_kpa must be a number")
+
+    setpoint = float(setpoint)
+
+    if not math.isfinite(setpoint):
+        raise HTTPException(status_code=400, detail="setpoint_kpa must be a number")
+
+    low, high = _p7_setpoint_limits()
+
+    if setpoint < low or setpoint > high:
+        raise HTTPException(
+            status_code=400,
+            detail=f"setpoint_kpa must be {low:g}..{high:g}",
+        )
+
+    value = format(setpoint, "f").rstrip("0").rstrip(".") or "0"
+    _store_control("em2rs_p7_setpoint_kpa", value)
+
+    return {"status": "ok", "setpoint_kpa": setpoint}
+
+
+@app.post("/api/em2rs/homing")
+async def em2rs_homing():
+
+    reason = _em2rs_blocks_motion()
+
+    if reason:
+        raise HTTPException(status_code=409, detail=reason)
+
+    _store_control("em2rs_homing", str(time.time_ns()))
+
+    return {"status": "ok"}
+
+
+@app.post("/api/em2rs/position")
+async def em2rs_position(request: Request):
+
+    body = await request.json()
+    percent = body.get("position_pct")
+
+    if isinstance(percent, bool) or not isinstance(percent, (int, float)):
+        raise HTTPException(status_code=400, detail="position_pct must be a number")
+
+    percent = float(percent)
+
+    if not math.isfinite(percent) or percent < 0 or percent > 100:
+        raise HTTPException(status_code=400, detail="position_pct must be 0..100")
+
+    reason = _em2rs_blocks_motion()
+
+    if reason:
+        raise HTTPException(status_code=409, detail=reason)
+
+    value = format(percent, "f").rstrip("0").rstrip(".") or "0"
+    _store_control("em2rs_position_pct", value)
+
+    return {"status": "ok", "position_pct": percent}
+
+
+@app.post("/api/em2rs/alarm-reset")
+async def em2rs_alarm_reset():
+
+    _store_control("em2rs_alarm_reset", str(time.time_ns()))
+
+    return {"status": "ok"}
 
 
 # --------------------------------------------------
