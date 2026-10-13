@@ -1,14 +1,25 @@
+import tempfile
 import time
 import unittest
+from datetime import datetime
+from pathlib import Path
 
 from iot_core.core.config import load_config
 from iot_core.devices.em2rs_556 import (
     Em2rs556Device,
+    clamp_position,
+    half_trim_step,
     homing_delta,
     judge_word,
     motion_limit_s,
     overall_status,
     percent_to_steps,
+    needs_boot_setup,
+    park_target_steps,
+    settle_remaining_s,
+    settle_wait_s,
+    trim_open_limit,
+    trim_step_pulses,
     words_to_int32,
 )
 
@@ -247,6 +258,314 @@ class Em2rs556DeviceTest(unittest.TestCase):
         self.assertEqual(client.writes, [])
         self.assertEqual(device.motion_phase, "IDLE")
 
+    def test_boot_setup_needs_a_changed_boot_in_either_mode(self):
+
+        self.assertFalse(needs_boot_setup(None, "new"))
+        self.assertFalse(needs_boot_setup("same", "same"))
+        self.assertTrue(needs_boot_setup("old", "new"))
+        self.assertEqual(park_target_steps({"park_percent": 50, "full_travel_steps": 600}), 300)
+
+    def test_auto_reboot_starts_homing_and_remembers_the_boot(self):
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "em2rs_boot_id"
+            device = _fresh()
+            device.note_boot("old-boot", "new-boot", path)
+            client = _drive()
+            conn = _StateConn(("AUTO", 1, "starý alarm", "POSITION_MOVE", 1, 37.0, 222))
+
+            device._poll_motion(client, conn, False, 100)
+
+            self.assertEqual(device.motion_phase, "HOMING_MOVE")
+            self.assertFalse(device.position_valid)
+            self.assertFalse(device.alarm)
+            self.assertEqual(device.hmi_mode, "AUTO")
+            self.assertEqual(client.blocks[0x6200][0], 0x0041)
+            self.assertEqual(client.blocks[0x6200][1], 0xFFFF)
+            self.assertEqual(client.blocks[0x6200][2], 0xFD76)
+            self.assertEqual(client.blocks[0x6002], [0x0010])
+            self.assertEqual(path.read_text(encoding="utf-8").strip(), "new-boot")
+
+    def test_same_boot_keeps_auto_still(self):
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "em2rs_boot_id"
+            device = _fresh()
+            device.note_boot("same-boot", "same-boot", path)
+            client = _drive()
+            conn = _StateConn(("AUTO", 0, None, "IDLE", 1, 37.0, 222))
+
+            device._poll_motion(client, conn, False, 210)
+
+            self.assertEqual(device.motion_phase, "IDLE")
+            self.assertTrue(device.position_valid)
+            self.assertEqual(client.writes, [])
+            self.assertEqual(path.read_text(encoding="utf-8").strip(), "same-boot")
+
+    def test_manual_reboot_starts_homing_and_then_parks(self):
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "em2rs_boot_id"
+            device = _fresh()
+            device.note_boot("old-boot", "new-boot", path)
+            client = _drive()
+            conn = _StateConn(("MANUAL", 0, None, "IDLE", 1, 37.0, 222))
+
+            device._poll_motion(client, conn, False, 210)
+
+            self.assertEqual(device.motion_phase, "HOMING_MOVE")
+            self.assertFalse(device.position_valid)
+            self.assertTrue(device._park_after_homing)
+            self.assertEqual(device.hmi_mode, "MANUAL")
+            self.assertEqual(path.read_text(encoding="utf-8").strip(), "new-boot")
+
+        device = _armed()
+        device.position_valid = True
+        device._park_after_homing = True
+        device.gd20_running = True
+        client = _drive()
+
+        device._poll_motion(client, _Conn(), False, 0)
+
+        self.assertEqual(device.motion_phase, "POSITION_MOVE")
+        self.assertEqual(device.requested_position_steps, 300)
+        self.assertFalse(device._park_after_homing)
+        self.assertEqual(client.blocks[0x6200][2], 300)
+
+    def test_stop_parks_the_valve_and_ignores_manual_moves(self):
+
+        device = _armed()
+        device.position_valid = True
+        device.gd20_running = False
+        device.hmi_mode = "MANUAL"
+        client = _drive()
+        conn = _ControlConn({"em2rs_position_pct": ("10", "click"), "em2rs_homing": ("1", "click")})
+
+        device._poll_motion(client, conn, False, 210)
+
+        self.assertEqual(device.motion_phase, "POSITION_MOVE")
+        self.assertEqual(device.requested_position_steps, 300)
+        self.assertEqual(client.blocks[0x6200][2], 300)
+
+        client.writes.clear()
+        device.motion_phase = "IDLE"
+        device._poll_motion(client, conn, False, 300)
+
+        self.assertEqual(client.writes, [0x000F])
+        self.assertEqual(client.blocks[0x000F], [0])
+        self.assertEqual(device.motion_phase, "IDLE")
+        self.assertEqual(device._seen["em2rs_position_pct"], "click")
+        self.assertEqual(device._seen["em2rs_homing"], "click")
+
+    def test_stop_drops_trim_before_parking(self):
+
+        device, conn, now, client = _trimmer(158.4)
+        device.gd20_running = False
+        device._trim_step = 40
+        device.motion_phase = "TRIM_SETTLE"
+
+        device._poll_motion(client, conn, False, 100, now)
+
+        self.assertIsNone(device._trim_step)
+        self.assertEqual(device.motion_phase, "POSITION_MOVE")
+        self.assertEqual(device.requested_position_steps, 300)
+
+    def test_running_inverter_does_not_park(self):
+
+        device = _armed()
+        device.position_valid = True
+        device.gd20_running = True
+        client = _drive()
+
+        device._poll_motion(client, _Conn(), False, 210)
+
+        self.assertEqual(client.writes, [])
+        self.assertEqual(device.motion_phase, "IDLE")
+
+    def test_auto_reboot_waits_until_the_counter_is_readable(self):
+
+        device = _fresh()
+        device.note_boot("old-boot", "new-boot")
+        client = _drive()
+        conn = _StateConn(("AUTO", 0, None, "IDLE", 1, 0, 0))
+
+        device._poll_motion(client, conn, False, None)
+
+        self.assertEqual(device.motion_phase, "IDLE")
+        self.assertFalse(device.position_valid)
+        self.assertEqual(client.writes, [])
+        self.assertTrue(device._boot_homing)
+
+        device._poll_motion(client, conn, False, 40)
+
+        self.assertEqual(device.motion_phase, "HOMING_MOVE")
+        self.assertFalse(device._boot_homing)
+
+    def test_trim_step_and_wait_follow_the_approved_rules(self):
+
+        self.assertEqual(trim_step_pulses(18, 0.18), 100)
+        self.assertEqual(clamp_position(500, 980, 0, 600), 600)
+        self.assertEqual(half_trim_step(100), 50)
+        self.assertEqual(half_trim_step(1), 0)
+        table = [
+            {"max_steps": 15, "wait_s": 30},
+            {"max_steps": 35, "wait_s": 70},
+            {"max_steps": 130, "wait_s": 130},
+        ]
+        self.assertEqual(settle_wait_s(33, table, 5), 70)
+        self.assertAlmostEqual(settle_wait_s(357, table, 5), 243.5)
+        self.assertIsNone(settle_remaining_s(None, 10))
+        self.assertEqual(settle_remaining_s(10, 12), 0.0)
+        self.assertAlmostEqual(settle_remaining_s(70, 10), 60)
+
+    def test_trim_settle_publishes_remaining_wait(self):
+
+        device = _fresh()
+        device._trim_step = 20
+        started = time.time()
+        device._begin_trim_settle()
+
+        self.assertEqual(device.motion_phase, "TRIM_SETTLE")
+        self.assertEqual(device._trim_settle_wait, 70)
+        self.assertAlmostEqual(device._trim_settle_deadline - started, 70, delta=1)
+        self.assertAlmostEqual(
+            settle_remaining_s(device._trim_settle_deadline, started),
+            70,
+            delta=1,
+        )
+
+        device, conn, now, client = _trimmer(100.0)
+        device._trim_step = 40
+        device._trim_settle_mono = time.monotonic()
+        device._trim_settle_wait = 100
+        device._trim_settle_deadline = 1_000_000.0
+        device._trim_extended = False
+        device.motion_phase = "TRIM_SETTLE"
+
+        for value in (100.0, 101.5, 102.0):
+            conn.cursor_obj.p7 = value
+            device._poll_motion(client, conn, False, 100, now)
+
+        self.assertFalse(device._trim_extended)
+        device._trim_settle_mono = time.monotonic() - 200
+        conn.cursor_obj.p7 = 103.0
+        device._poll_motion(client, conn, False, 100, now)
+
+        self.assertTrue(device._trim_extended)
+        self.assertEqual(device.motion_phase, "TRIM_SETTLE")
+        self.assertAlmostEqual(device._trim_settle_deadline, 1_000_060.0)
+        device._clear_trim()
+        self.assertIsNone(device._trim_settle_deadline)
+
+    def test_trim_starts_after_three_samples(self):
+
+        device, conn, now, client = _trimmer(158.4)
+
+        device._poll_motion(client, conn, False, 0, now)
+        device._poll_motion(client, conn, False, 0, now)
+        self.assertEqual(client.writes, [])
+
+        device._poll_motion(client, conn, False, 0, now)
+
+        self.assertEqual(device.motion_phase, "POSITION_MOVE")
+        self.assertEqual(device.requested_position_steps, 100)
+        self.assertEqual(client.blocks[0x6200][0], 0x0001)
+        self.assertEqual(client.blocks[0x6200][2], 100)
+
+    def test_trim_waits_then_halves_without_a_p7_response(self):
+
+        device, conn, now, client = _trimmer(158.4)
+        device._trim_step = 100
+        device._trim_p7_before = 158.4
+        device._trim_extended = True
+        device._trim_settle_mono = time.monotonic() - 5
+        device._trim_settle_wait = 0
+        device.motion_phase = "TRIM_SETTLE"
+
+        device._poll_motion(client, conn, False, 100, now)
+
+        self.assertEqual(device.motion_phase, "POSITION_MOVE")
+        self.assertEqual(device.requested_position_steps, 150)
+        self.assertEqual(device._trim_step, 50)
+
+    def test_trim_stops_inside_the_stop_band(self):
+
+        device, conn, now, client = _trimmer(175.5)
+        device._trim_step = 100
+        device._trim_p7_before = 170.0
+        device._trim_extended = True
+        device._trim_settle_mono = time.monotonic() - 5
+        device._trim_settle_wait = 0
+        device.motion_phase = "TRIM_SETTLE"
+
+        device._poll_motion(client, conn, False, 100, now)
+
+        self.assertEqual(device.motion_phase, "IDLE")
+        self.assertEqual(client.writes, [])
+        self.assertIsNone(device._trim_step)
+
+    def test_trim_holds_the_next_step_until_invt_is_stable(self):
+
+        device, conn, now, client = _trimmer(158.4)
+        device.gd20_stable = False
+        device._trim_step = 100
+        device._trim_extended = True
+        device._trim_settle_mono = time.monotonic() - 5
+        device._trim_settle_wait = 0
+        device.motion_phase = "TRIM_SETTLE"
+
+        device._poll_motion(client, conn, False, 100, now)
+
+        self.assertEqual(device.motion_phase, "TRIM_HOLD")
+        self.assertEqual(client.writes, [])
+
+        device.gd20_stable = True
+        device._trim_p7_before = 158.4
+        device._poll_motion(client, conn, False, 100, now)
+
+        self.assertEqual(device.requested_position_steps, 150)
+
+    def test_trim_closes_when_p7_is_above_the_setpoint(self):
+
+        device, conn, now, client = _trimmer(183.6)
+        device._trim_step = 172
+        device._trim_p7_before = 114.2
+        device._trim_extended = True
+        device._trim_settle_mono = time.monotonic() - 5
+        device._trim_settle_wait = 0
+        device.motion_phase = "TRIM_SETTLE"
+
+        device._poll_motion(client, conn, False, 517, now)
+
+        self.assertEqual(device.requested_position_steps, 300)
+        self.assertEqual(device._trim_step, -217)
+
+    def test_trim_stops_at_half_travel(self):
+
+        trim = _fresh().device_cfg["valve"]["p7_trim"]
+        k = float(trim["k_kpa_per_step"])
+        self.assertAlmostEqual(trim["stop_band_kpa"], 6 * k)
+        self.assertAlmostEqual(trim["sensitivity_kpa"], 11 * k)
+        self.assertEqual(trim_open_limit(600, 50, 600), 300)
+        device, conn, now, client = _trimmer(100.0)
+
+        device._poll_motion(client, conn, False, 250, now)
+        device._poll_motion(client, conn, False, 250, now)
+        device._poll_motion(client, conn, False, 250, now)
+
+        self.assertEqual(device.requested_position_steps, 300)
+        self.assertLessEqual(device.requested_position_steps, 300)
+
+    def test_gd20_within_band_is_stable(self):
+
+        device = _fresh()
+        now = datetime(2026, 10, 12, 13, 55, 0)
+        device.note_gd20(100, 3, 10)
+        device._apply_gd20((1, 1, 811.5, 810.0, now), now)
+
+        self.assertTrue(device.gd20_stable)
+        self.assertAlmostEqual(device.gd20_error_kpa, -1.5)
+
     def test_auto_does_not_move(self):
 
         device = _armed()
@@ -324,6 +643,69 @@ class Em2rs556DeviceTest(unittest.TestCase):
         self.assertEqual(client.blocks[0x000F], [0])
 
 
+class _TrimCursor(_Cursor):
+
+    def __init__(self, now, p7, setpoint):
+
+        super().__init__()
+        self.now = now
+        self.p7 = p7
+        self.setpoint = setpoint
+        self._one = None
+
+    def execute(self, sql, params=None):
+
+        super().execute(sql, params)
+        self._one = None
+
+        if "conversion_table" in sql:
+            self._one = (self.now, self.p7)
+        elif params and "control_state" in sql and params[0] == "em2rs_p7_setpoint_kpa":
+            self._one = (self.setpoint, self.now)
+
+    def fetchone(self):
+
+        return self._one
+
+
+class _TrimConn:
+
+    def __init__(self, now, p7, setpoint):
+
+        self.cursor_obj = _TrimCursor(now, p7, setpoint)
+
+    def cursor(self):
+
+        return self.cursor_obj
+
+
+def _trimmer(p7, setpoint="176.4"):
+
+    device = _fresh()
+    device.hmi_mode = "AUTO"
+    device.position_valid = True
+    device.gd20_stable = True
+    device._state_loaded = True
+    device._requests_seeded = True
+    device._seen = {
+        "em2rs_mode": "seed",
+        "em2rs_homing": "seed",
+        "em2rs_position_pct": "seed",
+        "em2rs_alarm_reset": "seed",
+    }
+    device.device_cfg["valve"]["p7_trim"]["enabled"] = True
+    now = datetime(2026, 10, 12, 14, 5, 0)
+    return device, _TrimConn(now, p7, setpoint), now, _drive()
+
+
+def _fresh():
+
+    device = _device()
+    device.frame_delay_s = 0
+    device.device_cfg["safety"]["motion_writes_enabled"] = True
+    return device
+
+
 def _armed():
 
     device = _device()
@@ -348,6 +730,35 @@ def _drive():
     client.blocks[0x1003] = [0]
     client.blocks[0x602C] = [0, 0]
     return client
+
+
+class _StateCursor(_Cursor):
+
+    def __init__(self, state_row):
+
+        super().__init__()
+        self.state_row = state_row
+        self._one = None
+
+    def execute(self, sql, params=None):
+
+        super().execute(sql, params)
+        self._one = self.state_row if "FROM em2rs_556_state" in sql else None
+
+    def fetchone(self):
+
+        return self._one
+
+
+class _StateConn:
+
+    def __init__(self, state_row):
+
+        self.cursor_obj = _StateCursor(state_row)
+
+    def cursor(self):
+
+        return self.cursor_obj
 
 
 class _ControlCursor(_Cursor):

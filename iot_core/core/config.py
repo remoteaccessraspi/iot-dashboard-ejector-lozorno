@@ -36,9 +36,98 @@ def _apply_env(database, keys):
             database[key] = value
 
 
+def _load_yaml(path):
+
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+
+    if data is None:
+        return {}
+
+    if not isinstance(data, dict):
+        raise RuntimeError(f"{path.name} nie je slovník nastavení")
+
+    return data
+
+
+def _included_path(entry):
+
+    if not isinstance(entry, str) or not entry or entry.startswith(("/", "\\")):
+        raise RuntimeError(f"Neplatný include: {entry!r}")
+
+    path = (CONFIG_DIR / entry).resolve()
+    root = CONFIG_DIR.resolve()
+
+    if path != root and root not in path.parents:
+        raise RuntimeError(f"Include mimo config: {entry}")
+
+    if path == SETTINGS_PATH.resolve():
+        raise RuntimeError("settings.yaml nemôže includeovať sám seba")
+
+    if not path.is_file():
+        raise RuntimeError(f"Chýba súbor nastavenia: {entry}")
+
+    return path
+
+
+def _merge(base, extra, source):
+
+    for key, value in extra.items():
+        here = f"{source}:{key}" if isinstance(key, str) else str(key)
+
+        if key not in base:
+            base[key] = value
+            continue
+
+        current = base[key]
+
+        if isinstance(current, dict) and isinstance(value, dict):
+            _merge(current, value, f"{source}:{key}")
+            continue
+
+        if current != value:
+            raise RuntimeError(
+                f"Konflikt nastavenia {here}: {current!r} vs {value!r}"
+            )
+
+    return base
+
+
+def merge_includes(includes):
+
+    if not isinstance(includes, list) or not includes:
+        raise RuntimeError("settings.yaml include musí byť neprázdny zoznam")
+
+    merged = {}
+
+    for entry in includes:
+        path = _included_path(entry)
+        _merge(merged, _load_yaml(path), entry)
+
+    return merged
+
+
+def load_settings():
+
+    root = _load_yaml(SETTINGS_PATH)
+    includes = root.get("include")
+
+    if not isinstance(includes, list):
+        return root
+
+    extra = set(root) - {"include"}
+
+    if extra:
+        raise RuntimeError(
+            "settings.yaml so zoznamom include nemá mať ďalšie kľúče: "
+            + ", ".join(sorted(extra))
+        )
+
+    return merge_includes(includes)
+
+
 def load_config():
 
-    cfg = yaml.safe_load(SETTINGS_PATH.read_text(encoding="utf-8"))
+    cfg = load_settings()
     secret_db = _secret_database()
 
     database = cfg.setdefault("database", {})

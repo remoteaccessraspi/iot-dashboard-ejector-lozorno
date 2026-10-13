@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <title>IOT HMI - EM2RS-556</title>
-  <link rel="stylesheet" href="{{ request.url_for('static', path='css/style.css') }}?v=em2rs-homing-up">
+  <link rel="stylesheet" href="{{ request.url_for('static', path='css/style.css') }}?v=em2rs-park-stop">
 </head>
 <body>
 
@@ -28,20 +28,22 @@
         <button id="em2rsReset" class="btn-stop" type="button">Clear alarm</button>
       </div>
     </div>
-    <div class="actions em2rs-actions">
-      <button id="em2rsManual" class="btn-run" type="button">Manual</button>
-      <button id="em2rsHoming" type="button">Homing</button>
-      <label class="em2rs-set-label" for="em2rsPosition">Position 0–100 %</label>
-      <button id="em2rsDown" class="em2rs-step" type="button" aria-label="Decrease position">−</button>
-      <input id="em2rsPosition" type="number" inputmode="numeric" min="0" max="100" step="1" value="0" aria-label="Position 0–100 %">
-      <button id="em2rsUp" class="em2rs-step" type="button" aria-label="Increase position">+</button>
-      <button id="em2rsSet" class="btn-run" type="button">SET</button>
-    </div>
-    <div class="actions em2rs-actions">
-      <button id="em2rsAuto" type="button">Auto</button>
-      <label class="em2rs-set-label" for="em2rsSetpoint">Setpoint {{ setpoint_min_label }}–{{ setpoint_max_label }} kPa</label>
-      <input id="em2rsSetpoint" type="number" inputmode="decimal" min="{{ setpoint_min }}" max="{{ setpoint_max }}" step="0.1" aria-label="Setpoint kPa">
-      <button id="em2rsSetpointSet" class="btn-run" type="button">SET</button>
+    <div class="em2rs-controls">
+      <div class="actions em2rs-actions">
+        <button id="em2rsManual" class="btn-run" type="button">Manual</button>
+        <button id="em2rsHoming" type="button">Homing</button>
+        <label class="em2rs-set-label" for="em2rsPosition">Position 0–100 %</label>
+        <button id="em2rsDown" class="em2rs-step" type="button" aria-label="Decrease position">−</button>
+        <input id="em2rsPosition" type="number" inputmode="numeric" min="0" max="100" step="1" value="0" aria-label="Position 0–100 %">
+        <button id="em2rsUp" class="em2rs-step" type="button" aria-label="Increase position">+</button>
+        <button id="em2rsSet" class="btn-run" type="button">SET</button>
+      </div>
+      <div class="actions em2rs-actions em2rs-actions-setpoint">
+        <button id="em2rsAuto" type="button">Auto</button>
+        <label class="em2rs-set-label" for="em2rsSetpoint">Setpoint {{ setpoint_min_label }}–{{ setpoint_max_label }} kPa</label>
+        <input id="em2rsSetpoint" type="number" inputmode="decimal" min="{{ setpoint_min }}" max="{{ setpoint_max }}" step="0.1" aria-label="Setpoint kPa">
+        <button id="em2rsSetpointSet" class="btn-run" type="button">SET</button>
+      </div>
     </div>
     <table id="em2rsTable"></table>
     <div class="small" id="em2rsNote"></div>
@@ -55,7 +57,7 @@ const EM2RS_SETPOINT_MIN = {{ setpoint_min }};
 const EM2RS_SETPOINT_MAX = {{ setpoint_max }};
 </script>
 
-<script src="{{ request.url_for('static', path='js/main.js') }}?v=em2rs-homing-up"></script>
+<script src="{{ request.url_for('static', path='js/main.js') }}?v=em2rs-park-stop"></script>
 
 </body>
 </html>

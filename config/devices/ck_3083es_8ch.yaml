@@ -1,0 +1,29 @@
+modbus:
+  slaves:
+    "CK-3083ES_8CH": 2
+
+  registers:
+    "CK-3083ES_8CH":
+      function: holding_registers
+      address: 2
+      count: 8
+      scale: 0.1
+      signed: true
+
+#
+# ------------------------
+# KONVERZNÉ KANÁLY
+# ------------------------
+# Dočasné aliasy = názov kanála (zapojenie ešte nie je definitívne).
+# Neskôr nahraď name popisným textom, napr. "Teplota generátora".
+channels:
+
+  # --- Teploty ---
+  t1: { name: "t_evap_in", unit: "°C" }
+  t2: { name: "t_gen_out", unit: "°C" }
+  t3: { name: "t_gen_in", unit: "°C" }
+  t4: { name: "t_control", unit: "°C" }
+  t5: { name: "t_cond_out", unit: "°C" }
+  t6: { name: "t_cond_in", unit: "°C" }
+  t7: { name: "t_evap_out", unit: "°C" }
+  t8: { name: "NA", unit: "°C" }

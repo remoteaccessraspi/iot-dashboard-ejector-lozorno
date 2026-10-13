@@ -5,10 +5,10 @@ from iot_core.core.config import load_config
 from iot_core.db.connection import get_connection
 from iot_core.modbus.client import wait_for_client
 
-from iot_core.devices.temperature import TemperatureDevice
-from iot_core.devices.current_loop import CurrentLoopDevice
+from iot_core.devices.ck_3083es_8ch import Ck3083es8chDevice
+from iot_core.devices.ck_7082e_8ch import Ck7082e8chDevice
 from iot_core.devices.invt_gd20 import InvtGd20Device
-from iot_core.devices.em2rs_556 import Em2rs556Device
+from iot_core.devices.em2rs_556 import Em2rs556Device, attach_boot
 
 
 # --------------------------------------------------
@@ -68,14 +68,14 @@ def main():
 
     slaves_cfg = modbus_cfg["slaves"]
 
-    temperature = TemperatureDevice(
-        slave_id=slaves_cfg["temperature_slave_id"],
-        reg_cfg=modbus_cfg["registers"]["temperature"]
+    ck_3083es = Ck3083es8chDevice(
+        slave_id=slaves_cfg[Ck3083es8chDevice.model],
+        reg_cfg=modbus_cfg["registers"][Ck3083es8chDevice.model]
     )
 
-    current_loop = CurrentLoopDevice(
-        slave_id=slaves_cfg["current_slave_id"],
-        reg_cfg=modbus_cfg["registers"]["current_loop"],
+    ck_7082e = Ck7082e8chDevice(
+        slave_id=slaves_cfg[Ck7082e8chDevice.model],
+        reg_cfg=modbus_cfg["registers"][Ck7082e8chDevice.model],
         conversion_cfg=cfg["conversion"]
     )
 
@@ -84,8 +84,8 @@ def main():
     # --------------------------------------------------
 
     devices = [
-        temperature,
-        current_loop,
+        ck_3083es,
+        ck_7082e,
     ]
 
     gd20_cfg = cfg.get("invt_gd20") or {}
@@ -101,22 +101,30 @@ def main():
     em2rs_cfg = cfg.get("em2rs_556") or {}
 
     if em2rs_cfg.get("enabled"):
-        devices.append(
-            Em2rs556Device(
-                slave_id=int(em2rs_cfg["slave_id"]),
-                device_cfg=em2rs_cfg,
-            )
+        em2rs = Em2rs556Device(
+            slave_id=int(em2rs_cfg["slave_id"]),
+            device_cfg=em2rs_cfg,
         )
+        attach_boot(em2rs)
+        stability = (gd20_cfg.get("stability") or {})
+        trim = ((em2rs_cfg.get("valve") or {}).get("p7_trim") or {})
+        if gd20_cfg.get("enabled"):
+            em2rs.note_gd20(
+                int(gd20_cfg.get("slave_id", 100)),
+                trim.get("invt_tolerance_kpa"),
+                stability.get("max_age_s", 10),
+            )
+        devices.append(em2rs)
 
     print(
         f"Modbus Master started "
-        f"(ID2={slaves_cfg['temperature_slave_id']}, "
-        f"ID3={slaves_cfg['current_slave_id']}, "
+        f"({Ck3083es8chDevice.model}={slaves_cfg[Ck3083es8chDevice.model]}, "
+        f"{Ck7082e8chDevice.model}={slaves_cfg[Ck7082e8chDevice.model]}, "
         f"GD20={gd20_cfg.get('slave_id') if gd20_cfg.get('enabled') else 'off'}, "
         f"EM2RS={em2rs_cfg.get('slave_id') if em2rs_cfg.get('enabled') else 'off'})"
     )
 
-    print("Devices:", [d.__class__.__name__ for d in devices])
+    print("Devices:", [getattr(d, "model", d.__class__.__name__) for d in devices])
 
     # --------------------------------------------------
     # POLL PARAMETERS
@@ -168,7 +176,7 @@ def main():
 
         for device in devices:
 
-            name = device.__class__.__name__
+            name = getattr(device, "model", device.__class__.__name__)
 
             start = time.monotonic()
 

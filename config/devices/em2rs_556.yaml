@@ -1,0 +1,270 @@
+em2rs_556:
+  enabled: true
+  slave_id: 31
+  polling:
+    # Nie je časovač. Čítanie aj zápis idú v cykle modbus.poll_period_s.
+    interval_s: 5
+  safety:
+    # Cieľ je 200 pulzov na otáčku. Driver má teraz slovo 600, preto prevod ešte nie je platný.
+    scaling_confirmed: false
+    # HMI Manual smie poslať homing a polohu, kým INVT beží.
+    # Pri STOP, poruche alebo výpadku meniča ide ventil na park_percent.
+    # Po reboote Raspberry je v Manual aj Auto najprv homing a potom park_percent.
+    motion_writes_enabled: true
+  manual:
+    # 600 pulzov = 3 otáčky pri 200 pulzoch na otáčku, celý pracovný zdvih.
+    # Prevod na driver units je vypnutý, kým scaling_confirmed nie je true.
+    max_steps: 600
+  startup_check:
+    # Etapa 4 z tohto bloku skladá len offline plán. Živé čítanie Slave 31 je etapa 8.
+    # iot-master pri štarte raz zapíše expected slová, ktoré sa líšia od drivera.
+    # Poll potom tieto registre len číta. 0x6002 a EEPROM sa nezapisujú.
+    # policy:
+    #   check_only             poll len porovnáva
+    #   write_after_approval   zápis až po ďalšom schválení; teraz sa nepoužíva
+    # expected: null znamená „nemáme potvrdenú cieľovú hodnotu“, nie zhodu s 0.
+    # Planner z toho nesmie urobiť MATCH ani CONFIG_MATCH.
+    # Úspešné čítanie bez cieľa je MANUAL_APPROVAL_REQUIRED a stav ostáva CONFIG_NOT_CHECKED.
+    parameters:
+      pulse_per_revolution:
+        parameter: "Pr0.00"
+        register: pulse_per_revolution
+        policy: check_only
+        expected: 200
+      # Pr5.00 má scale 0.1 A, takže slovo 8 je 0.8 A.
+      peak_current:
+        parameter: "Pr5.00"
+        register: peak_current
+        policy: check_only
+        expected: 8
+      # 0x0001: bity 0–3 = 1 (poloha), bit 6 = 0 (absolútna poloha).
+      path0_mode:
+        parameter: "Path0.mode"
+        register: path0_mode
+        policy: check_only
+        expected: 1
+      # Path0.speed je priamo v rpm, bez scale.
+      path0_speed:
+        parameter: "Path0.speed"
+        register: speed
+        policy: check_only
+        expected: 50
+      path0_acceleration:
+        parameter: "Path0.acceleration"
+        register: acceleration
+        policy: check_only
+        expected: 100
+      path0_deceleration:
+        parameter: "Path0.deceleration"
+        register: deceleration
+        policy: check_only
+        expected: 100
+      # Pauza po Path 0. Jednotka v manuáli V1.5 nie je uvedená; cieľové slovo je 0.
+      path0_pause_time:
+        parameter: "Path0.pause"
+        register: pause_time
+        policy: check_only
+        expected: 0
+  valve:
+    pulses_per_revolution: 200
+    full_travel_steps: 600
+    full_travel_revolutions: 3
+    # Homing ide do mechanického konca bez koncových spínačov.
+    # Motor záťaž na konci znesie a pulzy ďalej dostáva.
+    # 650 pulzov BACKWARD je samostatný homing, nie bežný povel v rozsahu 0..600.
+    homing_steps: 650
+    homing_direction: CLOSE
+    homing_limit_switches: false
+    homing_method: stall_at_end
+    homing_pulses_continue_at_end: true
+    # Dokončený príkaz backward 650 je len predpokladaná logická nula.
+    # full_travel_steps je prevádzkový rozsah. Samostatný kľúč travel_steps sa nepridáva.
+    reference_method: FIXED_STEPS_ASSUMED
+    # Otvorenie ETS 12C zvyšuje p_evap_prim. Tlak CLOSED závisí od prevádzky a teploty.
+    # null nie je vypnutá ochrana, kým je tlaková kontrola zapnutá.
+    # enabled ostáva pôvodný bezpečnostný kľúč. Vypnutie tlaku je closed_pressure_check_enabled.
+    # Okná 15/5/15 s sa používajú len pri zapnutej kontrole. Najnovšia vzorka musí byť do 10 s.
+    # PID active sa nevyžaduje. 100 kPa nie je predvolený limit.
+    # validated false: smer tlaku potvrdila obsluha, snímač a vplyv čerpadla nie.
+    pressure_interlock:
+      enabled: true
+      closed_pressure_check_enabled: false
+      validated: false
+      # Zadanie 26 volá tento kľúč closed_pressure_source. Samostatný kľúč sa nepridáva.
+      source: conversion_table.p7
+      max_closed_pressure_kpa: null
+      require_gd20_running: true
+      require_gd20_pid_active: false
+      pid_active_source: null
+      regulated_pressure_source: conversion_table.p6
+      regulated_setpoint_source: control_state.gd20_setpoint_kpa
+      setpoint_tolerance_kpa: null
+      setpoint_stable_time_s: 15.0
+      pressure_settle_time_s: 5.0
+      stable_time_s: 15.0
+      max_data_age_s: 10.0
+      require_mechanical_closed_confirmation: true
+    min_position_steps: 0
+    max_position_steps: 600
+    min_position_percent: 0.0
+    max_position_percent: 100.0
+    # Poloha mimo prevádzky. INVT STOP, FAULT a POFF sem ventil otvoria,
+    # aby sa tlaky v sústave vyrovnali. Po reboote ide ten istý cieľ až za homingom.
+    park_percent: 50
+    # Dorovnanie p7 zdvihom ETS 12C. Vzorka p7 raz za modbus.poll_period_s.
+    # Beh len keď enabled je true, em2rs_p7_setpoint_kpa je číslo, homing je platný
+    # a |pid_feedback_kpa − pid_setpoint_kpa| <= invt_tolerance_kpa. Nie p6, nie AI2.
+    # invt_tolerance_kpa je pásmo necitlivosti: v ňom EM2RS smie regulovať, mimo neho stojí.
+    # Hranica patrí do pásma. Vzorka meniča nesmie byť staršia ako invt_gd20.stability.max_age_s.
+    # Po reboote Raspberry sa v Manual aj Auto nula z karty nepoužije.
+    # Najprv prebehne homing a potom posun na park_percent.
+    # Reštart mastera pri stále napájanom meniči homing nespúšťa.
+    # Ak je vtedy INVT v STOP a ventil nie je na park_percent, ide len parkovací posun.
+    # n = round((setpoint_kpa - p7) / k_kpa_per_step) so znamienkom.
+    # Kladné n otvára a p7 stúpa, záporné zatvára.
+    # Na 0..max_open_percent sa oreže až poloha aktuálna + n.
+    # Nad 50 % čerpadlo nestíha dodávať kvapalinu, preto trim vyššie nejde.
+    # Po pohybe sa čaká settle_wait. Ak sa p7 zmenilo aspoň o no_response_kpa,
+    # ďalší krok je znova round(chyba / k) so znamienkom aktuálnej chyby.
+    # Polovica predchádzajúceho kroku, so rovnakým znamienkom, ide len keď p7
+    # neodpovedalo. Beh ide, kým |chyba| > stop_band_kpa. V pásme končí.
+    # Z pokoja nový beh až keď |chyba| >= sensitivity_kpa po confirm_samples.
+    # Medzi stop_band a sensitivity ventil stojí.
+    # Pásma sú celé kroky pri 0,18 kPa: 6 krokov = 1,08 kPa, 11 krokov = 1,98 kPa.
+    # |zmena p7| pod no_response_kpa alarm nespúšťa a polovice pokračujú.
+    # Na doraze 0 alebo 600 má ďalší krok tým smerom dĺžku 0 a nezapíše sa.
+    p7_trim:
+      enabled: true
+      setpoint_kpa: null
+      k_kpa_per_step: 0.18
+      max_open_percent: 50
+      invt_tolerance_kpa: 12
+      sensitivity_kpa: 1.98
+      stop_band_kpa: 1.08
+      confirm_samples: 3
+      settle_wait:
+        - { max_steps: 15, wait_s: 30 }
+        - { max_steps: 35, wait_s: 70 }
+        - { max_steps: 70, wait_s: 90 }
+        - { max_steps: 130, wait_s: 130 }
+      settle_extra_per_10_steps_s: 5
+      settle_span_kpa: 1
+      settle_span_samples: 3
+      settle_extra_s: 60
+      no_response_kpa: 1
+  motion:
+    default_speed_rpm: 50
+    acceleration: 100
+    deceleration: 100
+  modbus:
+    registers:
+      # Ciele sú v startup_check: Pr0.00=200, Pr5.00=8. scaling_confirmed ostáva false, kým živé čítanie nesedí.
+      pulse_per_revolution:
+        parameter: "Pr0.00"
+        address: 0x0001
+        unit: "P/R"
+        range_min: 200
+        range_max: 51200
+
+      # Pr6.16. V1.5 gives the raw word only; it is not a decoded version string.
+      firmware:
+        parameter: "Pr6.16"
+        address: 0x0201
+        read_only: true
+
+      peak_current:
+        parameter: "Pr5.00"
+        address: 0x0191
+        scale: 0.1
+        unit: "A"
+
+      # Pr0.07. 1 drží motor bez ohľadu na DI. Po pohybe sa zapisuje 0.
+      forced_enable:
+        parameter: "Pr0.07"
+        address: 0x000F
+
+      # Pr4.02. Továreň má 0x88, enable so zatvoreným DI1, a hriadeľ drží prúd.
+      # 0 znamená neplatný vstup, enable potom riadi len Pr0.07.
+      si1:
+        parameter: "Pr4.02"
+        address: 0x0145
+
+      # PR global/control
+      pr_global_control:
+        address: 0x6000
+
+      command:
+        address: 0x6002
+
+      # Soft limits
+      soft_limit_positive_high:
+        address: 0x6006
+      soft_limit_positive_low:
+        address: 0x6007
+      soft_limit_negative_high:
+        address: 0x6008
+      soft_limit_negative_low:
+        address: 0x6009
+
+      # Homing
+      homing_mode:
+        address: 0x600A
+      homing_high_velocity:
+        address: 0x600F
+      homing_low_velocity:
+        address: 0x6010
+      homing_acceleration:
+        address: 0x6011
+      homing_deceleration:
+        address: 0x6012
+      homing_overtravel:
+        address: 0x6015
+
+      # Stop / diagnostics
+      quick_stop_time:
+        address: 0x6017
+      pr_alarm:
+        address: 0x601D
+      motion_status:
+        address: 0x1003
+        read_only: true
+      current_alarm:
+        address: 0x2203
+        read_only: true
+
+      # Position feedback – READ ONLY
+      profile_position_high:
+        address: 0x602A
+        read_only: true
+      profile_position_low:
+        address: 0x602B
+        read_only: true
+
+      actual_position_high:
+        address: 0x602C
+        read_only: true
+      actual_position_low:
+        address: 0x602D
+        read_only: true
+
+      # PR Path 0
+      path0_mode:
+        address: 0x6200
+      target_position_high:
+        address: 0x6201
+      target_position_low:
+        address: 0x6202
+      speed:
+        address: 0x6203
+      acceleration:
+        address: 0x6204
+      deceleration:
+        address: 0x6205
+      pause_time:
+        address: 0x6206
+
+    commands:
+      start_path_0: 0x0010
+      homing: 0x0020
+      set_current_position_zero: 0x0021
+      quick_stop: 0x0040

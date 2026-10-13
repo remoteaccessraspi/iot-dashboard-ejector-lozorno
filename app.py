@@ -12,6 +12,8 @@ import math
 import pymysql
 
 from iot_core.core.config import load_config
+from iot_core.devices.em2rs_556 import settle_remaining_s
+from iot_core.devices.invt_gd20 import gd20_is_running, gd20_sample_age_s, gd20_stability
 
 
 # --------------------------------------------------
@@ -96,6 +98,56 @@ def pick(row, prefix):
     return [row.get(f"{prefix}{i}") for i in range(1, 9)]
 
 
+def _name_is_na(value):
+
+    if not isinstance(value, str):
+        return False
+
+    text = value.strip().lower()
+    return text == "" or text == "na"
+
+
+def _register_hidden(reg):
+
+    if not isinstance(reg, dict):
+        return False
+
+    if _name_is_na(reg.get("alias")):
+        return True
+
+    if "engineering_alias" in reg and _name_is_na(reg.get("engineering_alias")):
+        return True
+
+    return False
+
+
+# Riadok karty GD20 a register, ktorého alias ho skrýva.
+_GD20_CARD_ROWS = (
+    ("setpoint", "monitoring", "pid_setting"),
+    ("setpoint_command", "commands", "pid_reference"),
+    ("pid_feedback", "monitoring", "pid_feedback"),
+    ("ai2", "monitoring", "ai2"),
+    ("frequency", "monitoring", "running_frequency"),
+    ("frequency_set", "monitoring", "set_frequency"),
+    ("current", "monitoring", "output_current"),
+    ("voltage", "monitoring", "output_voltage"),
+    ("dc_bus", "monitoring", "dc_bus_voltage"),
+    ("speed", "monitoring", "motor_speed"),
+)
+
+
+def gd20_row_visible(cfg):
+
+    gd20 = (cfg or {}).get("invt_gd20") or {}
+    visible = {}
+
+    for key, section, name in _GD20_CARD_ROWS:
+        reg = ((gd20.get(section) or {}).get(name) or {})
+        visible[key] = not _register_hidden(reg)
+
+    return visible
+
+
 # --------------------------------------------------
 # ROUTES
 # --------------------------------------------------
@@ -121,7 +173,9 @@ def graph_page(request: Request):
 
     t_names, t_units = build_channel_cfg("t")
     p_names, p_units = build_channel_cfg("p")
-    monitoring = (current_cfg().get("invt_gd20") or {}).get("monitoring") or {}
+    cfg = current_cfg()
+    monitoring = (cfg.get("invt_gd20") or {}).get("monitoring") or {}
+    visible = gd20_row_visible(cfg)
     ai2_label = (monitoring.get("ai2") or {}).get("alias") or "ai2_value"
     pid_label = (monitoring.get("pid_feedback") or {}).get("engineering_alias") or "pid_feedback_kpa"
 
@@ -135,6 +189,8 @@ def graph_page(request: Request):
             "p_units": p_units,
             "ai2_label": ai2_label,
             "pid_label": pid_label,
+            "show_gd20_ai2": visible["ai2"],
+            "show_gd20_pid": visible["pid_feedback"],
         }
     )
 
@@ -273,8 +329,60 @@ def api_latest():
         "i_last_db": i_last.strftime("%Y-%m-%d %H:%M:%S") if i_last else None,
 
         "gd20": gd20_payload(gd20_row, gd20_setpoint_command),
-        "em2rs": em2rs_payload(em2rs_row, em2rs_sample_ts, em2rs_setpoint_command),
+        "em2rs": _em2rs_with_gd20(
+            em2rs_payload(em2rs_row, em2rs_sample_ts, em2rs_setpoint_command),
+            gd20_row,
+        ),
     }
+
+
+def _em2rs_with_gd20(payload, gd20_row):
+
+    if payload is None:
+        return None
+
+    gd20_cfg = current_cfg().get("invt_gd20") or {}
+    em2rs_cfg = current_cfg().get("em2rs_556") or {}
+    trim = ((em2rs_cfg.get("valve") or {}).get("p7_trim") or {})
+    max_age_s = ((gd20_cfg.get("stability") or {}).get("max_age_s", 10))
+    updated = None if gd20_row is None else gd20_row.get("updated_ts")
+    stable, error = gd20_stability(
+        None if gd20_row is None else gd20_row.get("pid_setpoint_kpa"),
+        None if gd20_row is None else gd20_row.get("pid_feedback_kpa"),
+        trim.get("invt_tolerance_kpa"),
+        None if gd20_row is None else gd20_row.get("running"),
+        None if gd20_row is None else gd20_row.get("online"),
+        gd20_sample_age_s(updated, datetime.now()),
+        max_age_s,
+    )
+    payload["gd20_stable"] = 1 if stable else 0
+    payload["gd20_error_kpa"] = error
+    payload["gd20_running"] = _gd20_running_flag(gd20_row, gd20_cfg, max_age_s)
+
+    return payload
+
+
+def _gd20_running_flag(row, gd20_cfg, max_age_s):
+
+    if row is None or not row.get("online"):
+        return None
+
+    age = gd20_sample_age_s(row.get("updated_ts"), datetime.now())
+    fresh = age is not None and max_age_s is not None and age <= float(max_age_s)
+
+    if not fresh:
+        return None
+
+    running_values = (
+        ((gd20_cfg.get("monitoring") or {}).get("status_word") or {}).get("running_values")
+        or (1, 2)
+    )
+    known = gd20_is_running(row.get("status_code"), running_values)
+
+    if known is None:
+        return None
+
+    return 1 if known else 0
 
 
 def _num(value):
@@ -291,7 +399,8 @@ def gd20_payload(row, setpoint_command=None):
         return None
 
     updated = row.get("updated_ts")
-    monitoring = (current_cfg().get("invt_gd20") or {}).get("monitoring") or {}
+    cfg = current_cfg()
+    monitoring = (cfg.get("invt_gd20") or {}).get("monitoring") or {}
     ai2_alias = (monitoring.get("ai2") or {}).get("alias") or "ai2_value"
 
     return {
@@ -304,6 +413,7 @@ def gd20_payload(row, setpoint_command=None):
         "pid_feedback_kpa": _num(row["pid_feedback_kpa"]),
         "ai2_alias": ai2_alias,
         "ai2_kpa": _num(row["ai2_kpa"]),
+        "visible": gd20_row_visible(cfg),
         "frequency_set_hz": _num(row["frequency_set_hz"]),
         "frequency_actual_hz": _num(row["frequency_actual_hz"]),
         "output_current_a": _num(row["output_current_a"]),
@@ -472,6 +582,11 @@ def em2rs_payload(row, sample_ts=None, setpoint_command=None):
         "alarm": int(row.get("alarm") or 0),
         "alarm_text": row.get("alarm_text"),
         "motion_phase": row.get("motion_phase"),
+        "trim_settle_remaining_s": (
+            settle_remaining_s(row.get("trim_settle_deadline"), time.time())
+            if row.get("motion_phase") == "TRIM_SETTLE"
+            else None
+        ),
         "position_valid": int(row.get("position_valid") or 0),
         "updated_ts": updated.strftime("%Y-%m-%d %H:%M:%S") if updated else None,
         "sample_ts": sample_ts.strftime("%Y-%m-%d %H:%M:%S") if sample_ts else None,

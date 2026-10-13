@@ -253,7 +253,10 @@ async function tick(){
     );
 
     renderGd20(data.gd20, data.server_time);
-    renderEm2rs(data.em2rs, data.server_time);
+    renderEm2rs(data.em2rs, data.server_time, {
+      name: data.p_names ? data.p_names[6] : null,
+      kpa: data.p ? data.p[6] : null,
+    });
 
   }
   catch(e){
@@ -299,7 +302,7 @@ function renderGd20(gd20, serverTime){
   if(!gd20){
     if(last) last.textContent="-";
     status.innerHTML='<span class="pill bad">OFFLINE</span>';
-    table.innerHTML="<tr><td colspan=\"2\">No data</td></tr>";
+    table.innerHTML="<tr><td class=\"gd20-label\" colspan=\"6\">No data</td></tr>";
     return;
   }
 
@@ -326,28 +329,48 @@ function renderGd20(gd20, serverTime){
 
   status.innerHTML = online + run + fault;
 
+  const visible = gd20.visible || {};
   const rows = [
-    ["Setpoint", gd20Num(gd20.pid_setpoint_kpa, 1), "kPa"],
-    ["Setpoint command", gd20Num(gd20.setpoint_command_kpa, 1), "kPa"],
-    ["PID feedback", gd20Num(gd20.pid_feedback_kpa, 1), "kPa"],
-    [gd20.ai2_alias || "ai2_value", gd20Num(gd20.ai2_kpa, 1), "kPa"],
-    ["Frequency", gd20Num(gd20.frequency_actual_hz, 2), "Hz"],
-    ["Set frequency", gd20Num(gd20.frequency_set_hz, 2), "Hz"],
-    ["Current", gd20Num(gd20.output_current_a, 1), "A"],
-    ["Output voltage", gd20Num(gd20.output_voltage_v, 0), "V"],
-    ["DC bus", gd20Num(gd20.dc_bus_voltage_v, 1), "V"],
-    ["Speed", gd20.motor_speed_rpm===null || gd20.motor_speed_rpm===undefined ? "-" : String(gd20.motor_speed_rpm), "rpm"],
+    ["setpoint", "Setpoint", gd20Num(gd20.pid_setpoint_kpa, 1), "kPa"],
+    ["setpoint_command", "Setpoint command", gd20Num(gd20.setpoint_command_kpa, 1), "kPa"],
+    ["pid_feedback", "PID feedback", gd20Num(gd20.pid_feedback_kpa, 1), "kPa"],
+    ["ai2", gd20.ai2_alias || "ai2_value", gd20Num(gd20.ai2_kpa, 1), "kPa"],
+    ["frequency", "Frequency", gd20Num(gd20.frequency_actual_hz, 2), "Hz"],
+    ["frequency_set", "Set frequency", gd20Num(gd20.frequency_set_hz, 2), "Hz"],
+    ["current", "Current", gd20Num(gd20.output_current_a, 1), "A"],
+    ["voltage", "Output voltage", gd20Num(gd20.output_voltage_v, 0), "V"],
+    ["dc_bus", "DC bus", gd20Num(gd20.dc_bus_voltage_v, 1), "V"],
+    ["speed", "Speed", gd20.motor_speed_rpm===null || gd20.motor_speed_rpm===undefined ? "-" : String(gd20.motor_speed_rpm), "rpm"],
   ];
 
-  let html="<tr><th>Value</th><th></th></tr>";
+  const shown = [];
 
-  for(const [label, value, unit] of rows){
-    html += `
-      <tr>
-        <td>${escapeHtml(label)}</td>
-        <td>${escapeHtml(value)} ${escapeHtml(unit)}</td>
-      </tr>
-    `;
+  for(const [key, label, value, unit] of rows){
+    if(visible[key]===false || safeName(label)===null) continue;
+    shown.push([label, value, unit]);
+  }
+
+  if(shown.length===0){
+    table.innerHTML = `<tr><td class="gd20-label" colspan="6">No sensors</td></tr>`;
+    return;
+  }
+
+  let html = "";
+
+  for(let i=0; i<shown.length; i+=3){
+    html += "<tr>";
+    for(let col=0; col<3; col++){
+      const item = shown[i+col];
+      if(!item){
+        html += `<td class="gd20-label"></td><td class="gd20-value"></td>`;
+        continue;
+      }
+      html += `
+        <td class="gd20-label">${escapeHtml(item[0])}</td>
+        <td class="gd20-value">${escapeHtml(item[1])} ${escapeHtml(item[2])}</td>
+      `;
+    }
+    html += "</tr>";
   }
 
   table.innerHTML = html;
@@ -457,7 +480,7 @@ function em2rsNum(value, digits){
 }
 
 
-function renderEm2rs(em2rs, serverTime){
+function renderEm2rs(em2rs, serverTime, pressure){
 
   const last=document.getElementById("em2rsLastDb");
   const status=document.getElementById("em2rsStatus");
@@ -532,14 +555,28 @@ function renderEm2rs(em2rs, serverTime){
     ? "-"
     : `${em2rsNum(em2rs.setpoint_command_kpa, 1)} kPa`;
 
+  const pressureName = (pressure && safeName(pressure.name)) || "p_evap_prim";
+  const pressureText = !pressure || pressure.kpa===null || pressure.kpa===undefined
+    ? "-"
+    : `${em2rsNum(pressure.kpa, 1)} kPa`;
+
   const homing=["Homing", em2rs.position_valid===1 ? "platný" : "potrebný"];
+  const gd20Error = em2rs.gd20_error_kpa===null || em2rs.gd20_error_kpa===undefined
+    ? null
+    : `${em2rsNum(em2rs.gd20_error_kpa, 1)} kPa`;
+  const gd20Stable = em2rs.gd20_stable===1;
+  const gd20Text = gd20Stable
+    ? (gd20Error ? `ustálený (${gd20Error})` : "ustálený")
+    : (gd20Error ? `nie (${gd20Error})` : "nie");
+  const gd20Class = gd20Stable ? "ok" : "bad";
+  armEm2rsSettle(em2rs);
   const rows = [
     ["Režim", em2rs.mode || "-"],
     ["Setpoint p7", setpoint],
     ["Požadované", requested],
     ["Skutočné", actual],
     ["Kontrola pulzov", check],
-    ["Fáza", em2rs.motion_phase || "-"],
+    ["Fáza", em2rsPhaseLabel(em2rs)],
   ];
 
   const rowCount=Math.ceil(rows.length / 2);
@@ -552,8 +589,10 @@ function renderEm2rs(em2rs, serverTime){
         <td class="em2rs-label">${left ? escapeHtml(left[0]) : ""}</td>
         <td class="em2rs-value">${left ? escapeHtml(left[1]) : ""}</td>
         <td class="em2rs-label">${mid ? escapeHtml(mid[0]) : ""}</td>
-        <td class="em2rs-value">${mid ? escapeHtml(mid[1]) : ""}</td>
-        ${r===0 ? `<td class="em2rs-label" rowspan="${rowCount}">${escapeHtml(homing[0])}</td><td class="em2rs-value" rowspan="${rowCount}">${escapeHtml(homing[1])}</td>` : ""}
+        <td class="em2rs-value"${mid && mid[0]==="Fáza" ? " id=\"em2rsPhase\"" : ""}>${mid ? escapeHtml(mid[1]) : ""}</td>
+        ${r===0 ? `<td class="em2rs-label">${escapeHtml(homing[0])}</td><td class="em2rs-value">${escapeHtml(homing[1])}</td>` : ""}
+        ${r===1 ? `<td class="em2rs-label">${escapeHtml(pressureName)}</td><td class="em2rs-value">${escapeHtml(pressureText)}</td>` : ""}
+        ${r===2 ? `<td class="em2rs-label ${gd20Class}">INVT</td><td class="em2rs-value ${gd20Class}">${escapeHtml(gd20Text)}</td>` : ""}
       </tr>
     `;
   }
@@ -581,10 +620,51 @@ function renderEm2rs(em2rs, serverTime){
 }
 
 
+function formatSettleRemain(seconds){
+
+  const total = Math.max(0, Math.ceil(Number(seconds)));
+  const minutes = Math.floor(total / 60);
+  const rest = total % 60;
+
+  return `${minutes}:${String(rest).padStart(2, "0")}`;
+}
+
+
+function armEm2rsSettle(em2rs){
+
+  const remain = em2rs && em2rs.motion_phase==="TRIM_SETTLE"
+    ? em2rs.trim_settle_remaining_s
+    : null;
+
+  if(remain===null || remain===undefined || !Number.isFinite(Number(remain))){
+    window.em2rsSettleClock = null;
+    return;
+  }
+
+  window.em2rsSettleClock = {
+    remaining: Number(remain),
+    at: performance.now(),
+  };
+}
+
+
+function em2rsPhaseLabel(em2rs){
+
+  const phase = (em2rs && em2rs.motion_phase) || "-";
+  const clock = window.em2rsSettleClock;
+
+  if(phase!=="TRIM_SETTLE" || !clock) return phase;
+
+  const left = Math.max(0, clock.remaining - (performance.now() - clock.at) / 1000);
+
+  return `${phase} ${formatSettleRemain(left)}`;
+}
+
+
 function applyEm2rsButtons(){
 
   const view=window.em2rsView;
-  const blocked = !view || view.mode==="AUTO" || view.running===1 || view.alarm===1;
+  const blocked = !view || view.mode==="AUTO" || view.running===1 || view.alarm===1 || view.gd20_running===0;
   const homing=document.getElementById("em2rsHoming");
   const setBtn=document.getElementById("em2rsSet");
   const down=document.getElementById("em2rsDown");
@@ -731,3 +811,8 @@ bindEm2rsButtons();
 tick();
 
 setInterval(tick,REFRESH_MS);
+setInterval(() => {
+  const cell=document.getElementById("em2rsPhase");
+  if(!cell || !window.em2rsSettleClock) return;
+  cell.textContent=em2rsPhaseLabel(window.em2rsView);
+}, 1000);

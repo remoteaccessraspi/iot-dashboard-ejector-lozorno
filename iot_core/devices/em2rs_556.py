@@ -1,7 +1,13 @@
 import time
+from datetime import datetime
+from pathlib import Path
 
 from iot_core.devices.base_device import BaseDevice
+from iot_core.devices.invt_gd20 import gd20_is_running, gd20_sample_age_s, gd20_stability
 from iot_core.modbus.compat import call_with_fallback
+
+_BOOT_ID_PATH = Path(__file__).resolve().parents[2] / "var" / "em2rs_boot_id"
+_BOOT_ID_FILE = Path("/proc/sys/kernel/random/boot_id")
 
 
 # Path 0 je súvislý blok Pr9.00..Pr9.06. Manuál EM2RS V1.5, adresy 0x6200–0x6206.
@@ -41,6 +47,149 @@ def split_int32(value):
     raw = int(value) & 0xFFFFFFFF
 
     return (raw >> 16) & 0xFFFF, raw & 0xFFFF
+
+
+def trim_step_pulses(error_kpa, k_kpa_per_step):
+
+    k = float(k_kpa_per_step)
+
+    if k == 0:
+        return 0
+
+    return int(round(float(error_kpa) / k))
+
+
+def trim_open_limit(full_travel_steps, max_open_percent, valve_max):
+
+    high = int(valve_max)
+
+    if max_open_percent is None:
+        return high
+
+    return min(high, percent_to_steps(max_open_percent, full_travel_steps))
+
+
+def clamp_position(actual, step, low, high):
+
+    target = int(actual) + int(step)
+
+    if target < int(low):
+        return int(low)
+
+    if target > int(high):
+        return int(high)
+
+    return target
+
+
+def half_trim_step(step):
+
+    sign = 1 if int(step) > 0 else -1
+    halved = int(round(abs(int(step)) / 2.0))
+
+    return sign * halved
+
+
+def settle_wait_s(steps, table, extra_per_10):
+
+    steps = abs(int(steps))
+    last = None
+
+    for row in table or []:
+        last = row
+
+        if steps <= int(row["max_steps"]):
+            return float(row["wait_s"])
+
+    if last is None:
+        return 0.0
+
+    wait = float(last["wait_s"])
+    over = steps - int(last["max_steps"])
+
+    if over > 0 and extra_per_10:
+        wait += (over / 10.0) * float(extra_per_10)
+
+    return wait
+
+
+def settle_remaining_s(deadline, now_epoch):
+
+    if deadline is None or now_epoch is None:
+        return None
+
+    try:
+        remaining = float(deadline) - float(now_epoch)
+    except (TypeError, ValueError):
+        return None
+
+    if remaining < 0:
+        return 0.0
+
+    return remaining
+
+
+def needs_boot_setup(stored_boot_id, current_boot_id):
+
+    if not stored_boot_id or not current_boot_id:
+        return False
+
+    return str(stored_boot_id) != str(current_boot_id)
+
+
+def park_target_steps(valve):
+
+    if not valve or valve.get("park_percent") is None:
+        return None
+
+    full = valve.get("full_travel_steps")
+
+    if not full:
+        return None
+
+    return percent_to_steps(valve["park_percent"], full)
+
+
+def current_boot_id():
+
+    try:
+        text = _BOOT_ID_FILE.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+
+    return text or None
+
+
+def stored_boot_id(path):
+
+    try:
+        text = Path(path).read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+
+    return text or None
+
+
+def save_boot_id(path, boot_id):
+
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(str(boot_id).strip() + "\n", encoding="utf-8")
+    temporary.replace(path)
+
+
+def attach_boot(device, path=None, current=None, stored=None):
+
+    path = _BOOT_ID_PATH if path is None else Path(path)
+
+    if current is None:
+        current = current_boot_id()
+
+    if stored is None:
+        stored = stored_boot_id(path)
+
+    device.note_boot(stored, current, path)
 
 
 def motion_limit_s(valve, motion):
@@ -160,6 +309,27 @@ class Em2rs556Device(BaseDevice):
         self._state_loaded = False
         self._enable_on = None
         self._io_enable_released = False
+        self._stored_boot_id = None
+        self._current_boot_id = None
+        self._boot_path = None
+        self._boot_homing = False
+        self._boot_applied = False
+        self._boot_committed = False
+        self._gd20_slave_id = None
+        self._gd20_tolerance_kpa = None
+        self._gd20_max_age_s = None
+        self.gd20_stable = False
+        self.gd20_error_kpa = None
+        self.gd20_running = None
+        self._park_after_homing = False
+        self._trim_step = None
+        self._trim_p7_before = None
+        self._trim_confirm = 0
+        self._trim_settle_mono = None
+        self._trim_settle_wait = None
+        self._trim_settle_deadline = None
+        self._trim_settle_p7 = []
+        self._trim_extended = False
 
     def execute(self, client, db_conn, ts):
 
@@ -177,6 +347,9 @@ class Em2rs556Device(BaseDevice):
 
         items = self._check_items(snapshot)
         status = overall_status(items)
+        self._read_gd20(db_conn, ts)
+        gd20_text = "ustálený" if self.gd20_stable else "nie"
+        gd20_error = "-" if self.gd20_error_kpa is None else f"{self.gd20_error_kpa:.1f}"
 
         print(
             "EM2RS",
@@ -190,12 +363,13 @@ class Em2rs556Device(BaseDevice):
             f"acc={_actual_expected(items, 'path0_acceleration')}",
             f"dec={_actual_expected(items, 'path0_deceleration')}",
             f"pause={snapshot.get('pause_time')}",
+            f"gd20={gd20_text}/{gd20_error}",
         )
 
         try:
             running = self._read_running(client)
             actual_steps = self._read_actual_steps(client)
-            self._poll_motion(client, db_conn, running, actual_steps)
+            self._poll_motion(client, db_conn, running, actual_steps, ts)
         except Exception as e:
             print("EM2RS motion error:", e)
 
@@ -369,7 +543,10 @@ class Em2rs556Device(BaseDevice):
         except Exception as e:
             print("EM2RS offline write error:", e)
 
-    def _poll_motion(self, client, db_conn, running, actual_steps):
+    def _poll_motion(self, client, db_conn, running, actual_steps, now=None):
+
+        if now is None:
+            now = datetime.now()
 
         self._load_state(db_conn)
         self.running = running is True
@@ -417,7 +594,19 @@ class Em2rs556Device(BaseDevice):
                 self._trip_timeout(client, limit, steps)
             return
 
+        if self._poll_boot_homing(client, actual_steps):
+            return
+
+        if self._park_after_homing and self.motion_phase == "IDLE" and self.position_valid and not self.alarm:
+            self._park_after_homing = False
+            if self._start_park(client, actual_steps):
+                return
+
+        if self._hold_park(client, actual_steps):
+            return
+
         self._accept_requests(client, db_conn, actual_steps)
+        self._poll_trim(client, db_conn, actual_steps, now)
 
         if self.motion_phase == "IDLE":
             self._set_enable(client, False)
@@ -425,6 +614,7 @@ class Em2rs556Device(BaseDevice):
     def _trip_timeout(self, client, limit, steps):
 
         self._quick_stop(client)
+        self._clear_trim()
         self.alarm = True
         self.alarm_text = f"beh dlhší ako {limit:.1f} s pre {steps} pulzov"
         self.motion_phase = "ALARM"
@@ -491,8 +681,12 @@ class Em2rs556Device(BaseDevice):
 
         if actual_steps == self._target_steps:
             self.position_check = "MATCH"
-            self.motion_phase = "IDLE"
             self._set_enable(client, False)
+            if self._trim_step is not None:
+                self._begin_trim_settle()
+                print(f"EM2RS trim pozícia {self._target_steps} ok")
+                return
+            self.motion_phase = "IDLE"
             print(f"EM2RS position {self._target_steps} ok")
             return
 
@@ -529,6 +723,13 @@ class Em2rs556Device(BaseDevice):
                 self.position_check = None
 
         if self.alarm or self.hmi_mode != "MANUAL":
+            return
+
+        if self.gd20_running is False and self.position_valid:
+            for name in ("em2rs_homing", "em2rs_position_pct"):
+                row = rows[name]
+                if row is not None:
+                    self._seen[name] = row[1]
             return
 
         homing_row = rows["em2rs_homing"]
@@ -570,6 +771,7 @@ class Em2rs556Device(BaseDevice):
             return
 
         if not row:
+            self._arm_boot_homing(self.hmi_mode)
             return
 
         mode, alarm, text, phase, valid, pct, steps = row[:7]
@@ -581,6 +783,9 @@ class Em2rs556Device(BaseDevice):
         self.requested_position_pct = pct
         self.requested_position_steps = steps
 
+        if self._arm_boot_homing(mode):
+            return
+
         if alarm:
             self.alarm = True
             self.alarm_text = text
@@ -591,6 +796,118 @@ class Em2rs556Device(BaseDevice):
             self.alarm = True
             self.alarm_text = "pohyb prerušený reštartom"
             self.motion_phase = "ALARM"
+
+    def note_gd20(self, slave_id, tolerance_kpa, max_age_s):
+
+        self._gd20_slave_id = None if slave_id is None else int(slave_id)
+        self._gd20_tolerance_kpa = None if tolerance_kpa is None else float(tolerance_kpa)
+        self._gd20_max_age_s = None if max_age_s is None else float(max_age_s)
+
+    def _read_gd20(self, db_conn, now):
+
+        if self._gd20_slave_id is None:
+            self._apply_gd20(None, now)
+            return
+
+        try:
+            with db_conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT online, running, pid_setpoint_kpa, pid_feedback_kpa, updated_ts,
+                           status_code
+                    FROM invt_gd20_state
+                    WHERE device_id = %s
+                    """,
+                    (self._gd20_slave_id,),
+                )
+                row = cur.fetchone()
+        except Exception as e:
+            print("EM2RS GD20 read:", e)
+            self._apply_gd20(None, now)
+            return
+
+        self._apply_gd20(row, now)
+
+    def _apply_gd20(self, row, now):
+
+        if not row:
+            self.gd20_stable = False
+            self.gd20_error_kpa = None
+            self.gd20_running = None
+            return
+
+        online, running, setpoint, feedback, updated = row[:5]
+        status = row[5] if len(row) > 5 else None
+        age = gd20_sample_age_s(updated, now)
+        tolerance = self._trim_cfg().get("invt_tolerance_kpa", self._gd20_tolerance_kpa)
+        self.gd20_running = self._known_gd20_running(online, status, age)
+        stable, error = gd20_stability(
+            setpoint,
+            feedback,
+            tolerance,
+            running,
+            online,
+            age,
+            self._gd20_max_age_s,
+        )
+        self.gd20_stable = stable
+        self.gd20_error_kpa = error
+
+    def note_boot(self, stored_boot_id, current_boot_id, path=None):
+
+        self._stored_boot_id = None if stored_boot_id is None else str(stored_boot_id).strip()
+        self._current_boot_id = None if current_boot_id is None else str(current_boot_id).strip()
+        self._boot_path = None if path is None else Path(path)
+
+    def _arm_boot_homing(self, mode):
+
+        if self._boot_applied:
+            return False
+
+        self._boot_applied = True
+
+        if not needs_boot_setup(self._stored_boot_id, self._current_boot_id):
+            self._commit_boot_id()
+            return False
+
+        self._boot_homing = True
+        self._park_after_homing = True
+        self.position_valid = False
+        self.alarm = False
+        self.alarm_text = None
+        self.motion_phase = "IDLE"
+        print("EM2RS reboot, homing čaká na počítadlo")
+        return True
+
+    def _poll_boot_homing(self, client, actual_steps):
+
+        if not self._boot_homing or self.motion_phase != "IDLE":
+            return False
+
+        if actual_steps is None:
+            return False
+
+        self._start_homing(client, actual_steps)
+
+        if self.motion_phase != "HOMING_MOVE":
+            return False
+
+        self._boot_homing = False
+        self._commit_boot_id()
+        print("EM2RS homing po reboote")
+        return True
+
+    def _commit_boot_id(self):
+
+        if self._boot_committed:
+            return
+
+        self._boot_committed = True
+
+        if not self._boot_path or not self._current_boot_id:
+            return
+
+        save_boot_id(self._boot_path, self._current_boot_id)
 
     def _start_homing(self, client, actual_steps):
 
@@ -620,6 +937,53 @@ class Em2rs556Device(BaseDevice):
         self._move_started = time.monotonic()
         print(f"EM2RS homing start {delta} pulses")
 
+    def _known_gd20_running(self, online, status_code, age):
+
+        max_age = self._gd20_max_age_s
+        fresh = (
+            online
+            and age is not None
+            and max_age is not None
+            and float(age) <= float(max_age)
+        )
+
+        if not fresh:
+            return None
+
+        return gd20_is_running(status_code)
+
+    def _start_park(self, client, actual_steps):
+
+        valve = self.device_cfg.get("valve") or {}
+        target = park_target_steps(valve)
+
+        if target is None or actual_steps is None:
+            return False
+
+        if int(actual_steps) == target:
+            return False
+
+        self._clear_trim()
+        self._start_position(client, actual_steps, valve["park_percent"])
+        return self.motion_phase == "POSITION_MOVE"
+
+    def _hold_park(self, client, actual_steps):
+
+        if self.gd20_running is not False or self.alarm:
+            return False
+
+        if self.motion_phase in ("TRIM_SETTLE", "TRIM_HOLD"):
+            self._drop_trim_run()
+
+        if self.motion_phase != "IDLE" or not self.position_valid:
+            return False
+
+        if self._start_park(client, actual_steps):
+            print(f"EM2RS INVT stop, parkovanie {self.device_cfg['valve']['park_percent']:g} %")
+            return True
+
+        return False
+
     def _start_position(self, client, actual_steps, raw_percent):
 
         if not self._motion_allowed():
@@ -645,6 +1009,11 @@ class Em2rs556Device(BaseDevice):
             return
 
         target = percent_to_steps(percent, full)
+        self._write_absolute_move(client, actual_steps, target, percent)
+        print(f"EM2RS position start {percent:g}% -> {target}")
+
+    def _write_absolute_move(self, client, actual_steps, target, percent):
+
         high, low = split_int32(target)
         self._start_steps = actual_steps
         self._target_steps = target
@@ -658,7 +1027,226 @@ class Em2rs556Device(BaseDevice):
         self._write_register_pause(client, self._address("command"), self._command("start_path_0"))
         self.motion_phase = "POSITION_MOVE"
         self._move_started = time.monotonic()
-        print(f"EM2RS position start {percent:g}% -> {target}")
+
+    def _trim_cfg(self):
+
+        return ((self.device_cfg.get("valve") or {}).get("p7_trim") or {})
+
+    def _clear_trim(self):
+
+        self._trim_step = None
+        self._trim_p7_before = None
+        self._trim_confirm = 0
+        self._trim_settle_mono = None
+        self._trim_settle_wait = None
+        self._trim_settle_deadline = None
+        self._trim_settle_p7 = []
+        self._trim_extended = False
+
+    def _drop_trim_run(self):
+
+        self._clear_trim()
+
+        if self.motion_phase in ("TRIM_SETTLE", "TRIM_HOLD"):
+            self.motion_phase = "IDLE"
+
+    def _poll_trim(self, client, db_conn, actual_steps, now):
+
+        trim = self._trim_cfg()
+
+        if not trim.get("enabled"):
+            self._clear_trim()
+            return
+
+        if self.motion_phase == "POSITION_MOVE":
+            return
+
+        if self.hmi_mode != "AUTO" or not self.position_valid or self.alarm:
+            self._drop_trim_run()
+            return
+
+        if self.motion_phase in ("TRIM_SETTLE", "TRIM_HOLD"):
+            self._trim_after_wait(client, db_conn, actual_steps, now, trim)
+            return
+
+        if self.motion_phase != "IDLE" or actual_steps is None:
+            return
+
+        if not self.gd20_stable:
+            self._trim_confirm = 0
+            return
+
+        setpoint, p7 = self._trim_sample(db_conn, now)
+
+        if setpoint is None or p7 is None:
+            self._trim_confirm = 0
+            return
+
+        error = setpoint - p7
+
+        if abs(error) < float(trim["sensitivity_kpa"]):
+            self._trim_confirm = 0
+            return
+
+        self._trim_confirm += 1
+
+        if self._trim_confirm < int(trim["confirm_samples"]):
+            print(f"EM2RS trim potvrdenie {self._trim_confirm}, chyba {error:.1f} kPa")
+            return
+
+        self._trim_confirm = 0
+        step = trim_step_pulses(error, trim["k_kpa_per_step"])
+        self._send_trim_step(client, actual_steps, step, p7)
+
+    def _trim_sample(self, db_conn, now):
+
+        row = self._control_row(db_conn, "em2rs_p7_setpoint_kpa")
+        setpoint = None
+
+        if row is not None and row[0] is not None:
+            try:
+                setpoint = float(str(row[0]).strip())
+            except ValueError:
+                setpoint = None
+
+        try:
+            with db_conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT ts, p7
+                    FROM conversion_table
+                    ORDER BY id DESC
+                    LIMIT 1
+                    """
+                )
+                sample = cur.fetchone()
+        except Exception as e:
+            print("EM2RS p7 read:", e)
+            return setpoint, None
+
+        if not sample or sample[1] is None:
+            return setpoint, None
+
+        max_age = self._gd20_max_age_s if self._gd20_max_age_s is not None else 10.0
+        age = gd20_sample_age_s(sample[0], now)
+
+        if age is None or age > max_age:
+            return setpoint, None
+
+        return setpoint, float(sample[1])
+
+    def _send_trim_step(self, client, actual_steps, step, p7):
+
+        valve = self.device_cfg["valve"]
+        trim = self._trim_cfg()
+        open_limit = trim_open_limit(
+            valve["full_travel_steps"],
+            trim.get("max_open_percent"),
+            valve["max_position_steps"],
+        )
+        target = clamp_position(
+            actual_steps,
+            step,
+            valve["min_position_steps"],
+            open_limit,
+        )
+        delta = target - int(actual_steps)
+
+        if delta == 0:
+            print("EM2RS trim krok 0, stojí na doraze")
+            self._clear_trim()
+            self.motion_phase = "IDLE"
+            return
+
+        if not self._motion_allowed() or self.running or actual_steps is None:
+            return
+
+        self._trim_step = delta
+        self._trim_p7_before = p7
+        full = int(valve["full_travel_steps"])
+        percent = None if not full else target * 100.0 / full
+        self._write_absolute_move(client, actual_steps, target, percent)
+        print(f"EM2RS trim {delta} pulzov -> {target}, p7 {p7:.1f}")
+
+    def _begin_trim_settle(self):
+
+        trim = self._trim_cfg()
+        self._trim_settle_mono = time.monotonic()
+        self._trim_settle_wait = settle_wait_s(
+            self._trim_step,
+            trim.get("settle_wait"),
+            trim.get("settle_extra_per_10_steps_s"),
+        )
+        self._trim_settle_deadline = time.time() + self._trim_settle_wait
+        self._trim_settle_p7 = []
+        self._trim_extended = False
+        self.motion_phase = "TRIM_SETTLE"
+        print(f"EM2RS trim čaká {self._trim_settle_wait:.0f} s")
+
+    def _trim_after_wait(self, client, db_conn, actual_steps, now, trim):
+
+        setpoint, p7 = self._trim_sample(db_conn, now)
+
+        if p7 is not None:
+            self._trim_settle_p7.append(p7)
+
+        if self.motion_phase == "TRIM_SETTLE":
+            elapsed = time.monotonic() - self._trim_settle_mono
+
+            if elapsed < self._trim_settle_wait:
+                return
+
+            count = int(trim["settle_span_samples"])
+            window = self._trim_settle_p7[-count:]
+
+            if (
+                not self._trim_extended
+                and len(window) >= count
+                and max(window) - min(window) >= float(trim["settle_span_kpa"])
+            ):
+                self._trim_extended = True
+                extra = float(trim["settle_extra_s"])
+                self._trim_settle_wait += extra
+                if self._trim_settle_deadline is not None:
+                    self._trim_settle_deadline += extra
+                print("EM2RS trim čakanie predĺžené, p7 sa ešte hýbe")
+                return
+
+        if not self.gd20_stable:
+            if self.motion_phase != "TRIM_HOLD":
+                self.motion_phase = "TRIM_HOLD"
+                print("EM2RS trim čaká na INVT")
+            return
+
+        if setpoint is None or p7 is None or actual_steps is None:
+            return
+
+        error = setpoint - p7
+
+        if abs(error) <= float(trim["stop_band_kpa"]):
+            print(f"EM2RS trim v pásme, chyba {error:.1f} kPa")
+            self._clear_trim()
+            self.motion_phase = "IDLE"
+            return
+
+        no_response = (
+            self._trim_p7_before is not None
+            and abs(p7 - self._trim_p7_before) < float(trim["no_response_kpa"])
+        )
+
+        if no_response:
+            print(f"EM2RS trim p7 bez odozvy, chyba {error:.1f} kPa")
+            step = half_trim_step(self._trim_step)
+        else:
+            step = trim_step_pulses(error, trim["k_kpa_per_step"])
+
+        if step == 0:
+            print("EM2RS trim polovica je 0")
+            self._clear_trim()
+            self.motion_phase = "IDLE"
+            return
+
+        self._send_trim_step(client, actual_steps, step, p7)
 
     def _maybe_reset_alarm(self, db_conn):
 
@@ -673,6 +1261,7 @@ class Em2rs556Device(BaseDevice):
 
     def _latch_alarm(self, text):
 
+        self._clear_trim()
         self.alarm = True
         self.alarm_text = text
         self.motion_phase = "ALARM"
@@ -817,6 +1406,7 @@ class Em2rs556Device(BaseDevice):
             "alarm_text",
             "motion_phase",
             "position_valid",
+            "trim_settle_deadline",
         ]
         params = [
             self.slave_id,
@@ -843,6 +1433,7 @@ class Em2rs556Device(BaseDevice):
             self.alarm_text,
             self.motion_phase,
             1 if self.position_valid else 0,
+            self._trim_settle_deadline if self.motion_phase == "TRIM_SETTLE" else None,
         ]
         assignments = ", ".join(
             f"{column} = VALUES({column})" for column in columns if column != "device_id"

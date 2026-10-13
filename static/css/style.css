@@ -234,13 +234,20 @@ button {
 #em2rsTable td.em2rs-label {
   text-align: left !important;
   width: 14%;
+  white-space: nowrap;
   vertical-align: middle;
 }
 
 #em2rsTable td.em2rs-value {
   text-align: right;
   width: 19%;
+  white-space: nowrap;
   vertical-align: middle;
+  padding-right: 48px;
+}
+
+#em2rsTable td.em2rs-value[rowspan] {
+  padding-right: 16px;
 }
 
 #em2rsTable td[rowspan] {
@@ -284,10 +291,71 @@ button {
   line-height: 1.6;
 }
 
+.em2rs-controls {
+  display: grid;
+  grid-template-columns:
+    max-content
+    max-content
+    minmax(max-content, 1fr)
+    max-content
+    max-content
+    max-content
+    max-content;
+  column-gap: 12px;
+  row-gap: 12px;
+  align-items: center;
+  width: 100%;
+}
+
+.em2rs-controls > .em2rs-actions {
+  display: grid;
+  grid-template-columns: subgrid;
+  grid-column: 1 / -1;
+  margin-bottom: 0;
+  width: auto;
+}
+
 .em2rs-actions {
   width: 100%;
   margin-bottom: 8px;
   align-items: center;
+}
+
+.em2rs-controls #em2rsManual,
+.em2rs-controls #em2rsAuto,
+.em2rs-controls #em2rsSet,
+.em2rs-controls #em2rsSetpointSet {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.em2rs-controls #em2rsPosition,
+.em2rs-controls #em2rsSetpoint {
+  width: 6.5ch;
+  box-sizing: content-box;
+  padding: 8px 8px;
+  text-align: right;
+}
+
+.em2rs-actions-setpoint #em2rsAuto {
+  grid-column: 1;
+}
+
+.em2rs-controls .em2rs-set-label {
+  justify-self: end;
+  text-align: right;
+}
+
+.em2rs-actions-setpoint .em2rs-set-label {
+  grid-column: 3;
+}
+
+.em2rs-actions-setpoint #em2rsSetpoint {
+  grid-column: 5;
+}
+
+.em2rs-actions-setpoint #em2rsSetpointSet {
+  grid-column: 7;
 }
 
 .em2rs-actions button,
@@ -346,6 +414,79 @@ button:disabled {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
+}
+
+.gd20-row,
+.gd20-card {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.gd20-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.gd20-meta .gd20-last {
+  margin-left: auto;
+  white-space: nowrap;
+  text-align: right;
+}
+
+.gd20-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 12px;
+  min-width: 0;
+}
+
+.gd20-head .status-row {
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
+}
+
+.gd20-actions {
+  flex: 1 1 auto;
+  align-items: center;
+  min-width: 0;
+}
+
+.gd20-actions button,
+.gd20-actions input[type="number"] {
+  flex: 0 0 auto;
+  height: auto;
+  padding: 10px 14px;
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.6;
+}
+
+.gd20-actions input[type="number"] {
+  flex: 1 1 8rem;
+  width: 8rem;
+  min-width: 8rem;
+  max-width: 14rem;
+  padding: 8px 12px;
+}
+
+#gd20Table {
+  table-layout: fixed;
+}
+
+#gd20Table td.gd20-label {
+  text-align: left !important;
+  width: 14%;
+  vertical-align: middle;
+}
+
+#gd20Table td.gd20-value {
+  text-align: right;
+  width: 19%;
+  vertical-align: middle;
+  white-space: nowrap;
 }
 
 /* ============================= */

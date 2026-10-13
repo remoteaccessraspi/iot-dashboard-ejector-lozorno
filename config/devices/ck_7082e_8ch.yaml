@@ -1,0 +1,49 @@
+modbus:
+  slaves:
+    "CK-7082E_8CH": 3
+
+  registers:
+    "CK-7082E_8CH":
+      function: holding_registers
+      address: 96      # overené v prevádzke, nemeniť bez merania na module
+      count: 8
+      scale: 0.001
+      signed: false
+
+channels:
+  # --- Tlaky (z i1–i8 cez conversion) ---
+  p1: { name: "NA", unit: "kPa" }
+  p2: { name: "NA", unit: "kPa" }
+  p3: { name: "NA", unit: "kPa" }
+  p4: { name: "NA", unit: "kPa" }
+  p5: { name: "NA", unit: "kPa" }
+  p6: { name: "p_gen_prim", unit: "kPa (0-1500)" }
+  p7: { name: "p_evap_prim", unit: "kPa (0-220)" }
+  p8: { name: "p_cond_prim", unit: "kPa (0-400)" }
+
+
+  # --- Prúdy 4–20 mA ---
+  i1: { name: "NA", unit: "mA" }
+  i2: { name: "NA", unit: "mA" }
+  i3: { name: "NA", unit: "mA" }
+  i4: { name: "NA", unit: "mA" }
+  i5: { name: "NA", unit: "mA" }
+  i6: { name: "p_gen_prim", unit: "mA (4-20)" }
+  i7: { name: "p_evap_prim", unit: "mA (4-20)" }
+  i8: { name: "p_cond_prim", unit: "mA (4-20)" }
+
+conversion:
+  interval_sec: 1
+  # a = kPa pri 4 mA, b = kPa pri 20 mA
+  # p = a + (i - 4) * (b - a) / 16
+  channels:
+    # p1–p5 nemajú pripojený snímač. a/b sú zástupné hodnoty, ktoré len
+    # prepíšu mA na seba samé; pri zapojení snímača nastav skutočný rozsah.
+    p1: { source: i1, a: 4.0, b: 20.0 }
+    p2: { source: i2, a: 4.0, b: 20.0 }
+    p3: { source: i3, a: 4.0, b: 20.0 }
+    p4: { source: i4, a: 4.0, b: 20.0 }
+    p5: { source: i5, a: 4.0, b: 20.0 }
+    p6: { source: i6, a: 0, b: 1500.0 }
+    p7: { source: i7, a: 0, b: 220.0 }
+    p8: { source: i8, a: 0, b: 400.0 }

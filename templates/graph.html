@@ -90,15 +90,19 @@
 
 <b>INVT GD20</b><br>
 
+{% if show_gd20_ai2 %}
 <label>
 <input type="checkbox" value="gd20_ai2" data-label="{{ ai2_label }}">
 {{ ai2_label }} (kPa)
 </label><br>
+{% endif %}
 
+{% if show_gd20_pid %}
 <label>
 <input type="checkbox" value="gd20_pid_feedback" data-label="{{ pid_label }}">
 {{ pid_label }} (kPa)
 </label><br>
+{% endif %}
 
 </div>
 

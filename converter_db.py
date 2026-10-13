@@ -41,7 +41,7 @@ def main():
     if not bool(cfg.get("features", {}).get("converter", False)):
         print(
             "iot-converter disabled (features.converter=false); "
-            "conversion is handled by CurrentLoopDevice. Idle."
+            "conversion is handled by CK-7082E_8CH. Idle."
         )
         while True:
             time.sleep(3600)
@@ -54,7 +54,7 @@ def main():
     channels = conv.get("channels", {})
 
     if not channels:
-        raise RuntimeError("Missing conversion.channels in settings.yaml")
+        raise RuntimeError("Missing conversion.channels in CK-7082E_8CH settings")
 
     conn = db_connect(db)
 

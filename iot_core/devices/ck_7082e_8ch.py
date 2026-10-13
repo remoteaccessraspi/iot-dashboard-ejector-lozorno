@@ -1,6 +1,10 @@
 from iot_core.devices.base_device import BaseDevice
 
 
+# CK-7082E_8CH, 8× prúdová slučka 4–20 mA.
+MODEL = "CK-7082E_8CH"
+
+
 def _call_with_fallback(fn, address: int, count: int, unit_id: int):
 
     tries = [
@@ -44,7 +48,9 @@ def compute_pressure(i, a, b):
     return a + scale * (b - a)
 
 
-class CurrentLoopDevice(BaseDevice):
+class Ck7082e8chDevice(BaseDevice):
+
+    model = MODEL
 
     def __init__(self, slave_id, reg_cfg, conversion_cfg):
 
@@ -79,17 +85,17 @@ class CurrentLoopDevice(BaseDevice):
         )
 
         if not rr or (hasattr(rr, "isError") and rr.isError()):
-            print("Current read error:", rr)
+            print(f"{self.model} read error:", rr)
             return
 
         if not hasattr(rr, "registers"):
-            print("Current invalid response:", rr)
+            print(f"{self.model} invalid response:", rr)
             return
 
         expected = int(self.reg_cfg["count"])
 
         if len(rr.registers) != expected:
-            print("Current wrong register count:", len(rr.registers), "expected", expected)
+            print(f"{self.model} wrong register count:", len(rr.registers), "expected", expected)
             return
 
         regs = list(rr.registers)

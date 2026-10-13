@@ -3,7 +3,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-SETTINGS="$ROOT/config/settings.yaml"
+SETTINGS="$ROOT/config/common.yaml"
 PATCHED=0
 UNITS_REPLACED=0
 BACKUP="$(mktemp -d)"
@@ -84,7 +84,7 @@ new_db = """database:
 if old_db in text:
     text = text.replace(old_db, new_db, 1)
 elif "database:\n  host: 127.0.0.1\n  port: 3307\n  name: ejector\n" not in text:
-    raise SystemExit("settings.yaml nemá očakávaný blok database")
+    raise SystemExit("common.yaml nemá očakávaný blok database")
 
 old_sync = """  # RAM je zatiaľ prázdna a master píše na kartu. REPLACE stavu by ten stav zmazal.
   sync_state: false

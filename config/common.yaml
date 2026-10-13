@@ -1,0 +1,48 @@
+modbus: 
+  method: rtu
+  #port: /dev/ttyUSB0
+  port: /dev/serial/by-id/usb-FTDI_FT232R_USB_UART_A5069RR4-if00-port0
+  baudrate: 9600
+  parity: N
+  stopbits: 1
+  timeout_sec: 0.55
+  # Spoločná perióda jedného poll cyklu (rovnaký timestamp pre všetky zariadenia).
+  poll_period_s: 5
+
+
+# user a password sú v config/secrets.yaml, ktorý nie je verzovaný.
+# Vzor je v config/secrets.yaml.example. Prepísať ich vie aj prostredie
+# cez EJECTOR_DB_USER a EJECTOR_DB_PASSWORD.
+database:
+  host: 127.0.0.1
+  port: 3307
+  name: ejector
+
+# RAM inštancia. Master a HMI sa pripájajú sem.
+database_hot:
+  host: 127.0.0.1
+  port: 3307
+  name: ejector
+
+# Databáza na SD karte. Sync sem raz za interval vloží nové riadky histórie.
+# DBeaver: port 3306, používateľ dbeaver, heslo v config/secrets.yaml. Len čítanie.
+database_archive:
+  host: 127.0.0.1
+  port: 3306
+  name: ejector
+
+archive_sync:
+  interval_s: 200
+  batch_rows: 5000
+  # Master píše do RAM. Stav sa dávkou vracia na kartu.
+  sync_state: true
+  hot_retention_hours: 24
+  archive_retention_days: 90
+  purge_archive: true
+
+# conversion robí CK-7082E_8CH — samostatný converter vypnutý (inak duplicitné riadky)
+features:
+  converter: false
+
+hmi:
+  refresh_ms: 2000

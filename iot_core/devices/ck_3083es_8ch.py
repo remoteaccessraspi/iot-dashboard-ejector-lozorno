@@ -1,6 +1,10 @@
 from iot_core.devices.base_device import BaseDevice
 
 
+# CK-3083ES_8CH, 8× PT100.
+MODEL = "CK-3083ES_8CH"
+
+
 def _call_with_fallback(fn, address: int, count: int, unit_id: int):
 
     tries = [
@@ -25,7 +29,9 @@ def _call_with_fallback(fn, address: int, count: int, unit_id: int):
     raise last
 
 
-class TemperatureDevice(BaseDevice):
+class Ck3083es8chDevice(BaseDevice):
+
+    model = MODEL
 
     def __init__(self, slave_id, reg_cfg):
 
@@ -44,19 +50,19 @@ class TemperatureDevice(BaseDevice):
                 unit_id=self.slave_id
             )
         except Exception as e:
-            print("Temperature Modbus call failed:", e)
+            print(f"{self.model} Modbus call failed:", e)
             return
 
         if not rr or (hasattr(rr, "isError") and rr.isError()):
-            print("Temperature read error:", rr)
+            print(f"{self.model} read error:", rr)
             return
 
         if not hasattr(rr, "registers"):
-            print("Temperature invalid response:", rr)
+            print(f"{self.model} invalid response:", rr)
             return
 
         if len(rr.registers) != self.reg_cfg["count"]:
-            print("Temperature wrong register count:", rr.registers)
+            print(f"{self.model} wrong register count:", rr.registers)
             return
 
         regs = rr.registers
@@ -95,5 +101,5 @@ class TemperatureDevice(BaseDevice):
 
         except Exception as e:
 
-            print("Temperature DB error:", e)
+            print(f"{self.model} DB error:", e)
             return

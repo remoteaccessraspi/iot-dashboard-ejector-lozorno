@@ -7,11 +7,11 @@ Modbus RTU master on a single RS485 bus and serves the HMI over HTTP.
 
 | Slave ID | Device                                      |
 |----------|---------------------------------------------|
-| 2        | PT100 temperature module (t1-t8)            |
-| 3        | Current loop module 4-20 mA (i1-i8)         |
+| 2        | CK-3083ES_8CH PT100 (t1-t8)                 |
+| 3        | CK-7082E_8CH current loop 4-20 mA (i1-i8)   |
 | 100      | INVT GD20-EU inverter (pressure regulation) |
 
-Pressure channels p1-p8 are converted from i1-i8 inside `CurrentLoopDevice`.
+Pressure channels p1-p8 are converted from i1-i8 inside `Ck7082e8chDevice`.
 The GD20 regulates with its own internal PID; the feedback comes from the
 inverter's AI2 input, not from the Raspberry Pi.
 
@@ -26,7 +26,7 @@ sudo systemctl status iot-master iot-dashboard
 
 `iot-master` polls the bus and writes to MariaDB, `iot-dashboard` serves the HMI
 on port 8000. `iot-converter` stays disabled — conversion is done by the master
-(`features.converter: false` in `config/settings.yaml`).
+(`features.converter: false` in `config/common.yaml`).
 
 ## Running the master manually
 
@@ -53,7 +53,8 @@ sudo systemctl start iot-master
 ## Credentials
 
 Database user and password live in `config/secrets.yaml`, which is not tracked.
-`config/settings.yaml` holds only non-secret values (host, port, database name).
+`config/settings.yaml` lists the partial files. Non-secret values live in
+`config/common.yaml` and `config/devices/` (host, port, database name, devices).
 
 ```bash
 cp config/secrets.yaml.example config/secrets.yaml
