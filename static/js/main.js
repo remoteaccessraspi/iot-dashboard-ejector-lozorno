@@ -56,7 +56,7 @@ function fmt(v,unit=null){
 }
 
 
-// názov kanálu – NA alebo "" = nepripojený
+// Channel name. NA or "" means the input is not connected.
 function safeName(name){
 
   if(name===undefined || name===null) return null;
@@ -98,49 +98,65 @@ function isStale(dbTimeStr,serverTimeStr,thresholdSec=10){
 // GENERIC TABLE (T, I, P)
 // =====================================================
 
-function renderTable(el,names,values,units=null){
+function renderTable(el,names,values,units=null,columns=1){
 
   if(!el) return;
 
-  let html="<tr><th>Channel</th><th>Value</th></tr>";
+  const cols=Math.max(1, columns|0);
+  const items=[];
 
-  if(!values || !Array.isArray(values)){
+  if(values && Array.isArray(values)){
+
+    for(let i=0;i<values.length;i++){
+
+      const label=names ? safeName(names[i]) : `CH${i+1}`;
+      if(label===null) continue;
+
+      const unit=(units && units[i]) ? units[i] : null;
+      const v=fmt(values[i],unit);
+      const vtxt=(v===null) ? "-" : v;
+      const unitTxt=unit ? " "+unit : "";
+
+      items.push({
+        label: label,
+        text: vtxt+unitTxt
+      });
+    }
+  }
+
+  let html="";
+
+  if(items.length===0){
+
+    html+=`
+      <tr>
+        <td colspan="${cols*2}">No sensors</td>
+      </tr>
+    `;
     el.innerHTML=html;
     return;
   }
 
-  let visible=0;
+  for(let i=0;i<items.length;i+=cols){
 
-  for(let i=0;i<values.length;i++){
+    html+="<tr>";
 
-    const label=names ? safeName(names[i]) : `CH${i+1}`;
-    if(label===null) continue;
+    for(let c=0;c<cols;c++){
 
-    const unit=(units && units[i]) ? units[i] : null;
+      const item=items[i+c];
 
-    const v=fmt(values[i],unit);
+      if(!item){
+        html+="<td></td><td></td>";
+        continue;
+      }
 
-    const vtxt=(v===null) ? "-" : v;
+      html+=`
+        <td class="ch-label">${escapeHtml(item.label)}</td>
+        <td class="ch-value">${escapeHtml(item.text)}</td>
+      `;
+    }
 
-    const unitTxt=unit ? " "+unit : "";
-
-    html+=`
-      <tr>
-        <td style="text-align:left">${escapeHtml(label)}</td>
-        <td>${escapeHtml(vtxt)}${escapeHtml(unitTxt)}</td>
-      </tr>
-    `;
-
-    visible++;
-  }
-
-  if(visible===0){
-
-    html+=`
-      <tr>
-        <td colspan="2">No sensors</td>
-      </tr>
-    `;
+    html+="</tr>";
   }
 
   el.innerHTML=html;
@@ -235,7 +251,8 @@ async function tick(){
       document.getElementById("tTable"),
       data.t_names,
       data.t,
-      data.t_units
+      data.t_units,
+      3
     );
 
     renderTable(
@@ -326,15 +343,34 @@ function renderGd20(gd20, serverTime){
   const fault = (gd20.fault_code===null || gd20.fault_code===0)
     ? '<span class="pill ok">NO FAULT</span>'
     : `<span class="pill bad">FAULT ${escapeHtml(gd20.fault_code)}</span>`;
+  const externalStop = gd20.external_stop===1;
+  const ext = externalStop
+    ? '<span class="pill bad">EXT STOP</span>'
+    : '';
 
-  status.innerHTML = online + run + fault;
+  window.gd20ExternalStop = externalStop;
+  status.innerHTML = online + run + fault + ext;
+
+  const runBtn=document.getElementById("gd20Run");
+  if(runBtn) runBtn.disabled = externalStop;
+
+  const note=document.getElementById("gd20Cmd");
+  if(note){
+    if(externalStop){
+      note.textContent = "External switch is open. Close it, then press RUN.";
+      note.dataset.kind = "ext";
+    }else if(note.dataset.kind==="ext"){
+      note.textContent = "";
+      note.dataset.kind = "";
+    }
+  }
 
   const visible = gd20.visible || {};
   const rows = [
     ["setpoint", "Setpoint", gd20Num(gd20.pid_setpoint_kpa, 1), "kPa"],
     ["setpoint_command", "Setpoint command", gd20Num(gd20.setpoint_command_kpa, 1), "kPa"],
     ["pid_feedback", "PID feedback", gd20Num(gd20.pid_feedback_kpa, 1), "kPa"],
-    ["ai2", gd20.ai2_alias || "ai2_value", gd20Num(gd20.ai2_kpa, 1), "kPa"],
+    ["ai2", gd20.ai2_alias || "p_gen_prim_from_frq", gd20Num(gd20.ai2_kpa, 1), "kPa"],
     ["frequency", "Frequency", gd20Num(gd20.frequency_actual_hz, 2), "Hz"],
     ["frequency_set", "Set frequency", gd20Num(gd20.frequency_set_hz, 2), "Hz"],
     ["current", "Current", gd20Num(gd20.output_current_a, 1), "A"],
@@ -394,16 +430,30 @@ async function sendGd20(run){
       cache:"no-store"
     });
 
+    if(r.status===409){
+      if(note){
+        note.textContent = "External switch is open. Close it, then press RUN.";
+        note.dataset.kind = "ext";
+      }
+      return;
+    }
+
     if(!r.ok) throw new Error("HTTP "+r.status);
 
-    if(note) note.textContent = run ? "RUN queued" : "STOP queued";
+    if(note){
+      note.textContent = run ? "RUN queued" : "STOP queued";
+      note.dataset.kind = "command";
+    }
   }
   catch(e){
-    if(note) note.textContent = "Command error";
+    if(note){
+      note.textContent = "Command error";
+      note.dataset.kind = "error";
+    }
     console.error(e);
   }
   finally{
-    if(runBtn) runBtn.disabled=false;
+    if(runBtn) runBtn.disabled = Boolean(window.gd20ExternalStop);
     if(stopBtn) stopBtn.disabled=false;
   }
 }
@@ -522,7 +572,7 @@ function renderEm2rs(em2rs, serverTime, pressure){
 
   if(steady){
     steady.textContent = (!pollStale && unchanged)
-      ? "Hodnoty sa nezmenili od " + em2rs.updated_ts + "."
+      ? "Values unchanged since " + em2rs.updated_ts + "."
       : "";
   }
 
@@ -560,23 +610,23 @@ function renderEm2rs(em2rs, serverTime, pressure){
     ? "-"
     : `${em2rsNum(pressure.kpa, 1)} kPa`;
 
-  const homing=["Homing", em2rs.position_valid===1 ? "platný" : "potrebný"];
+  const homing=["Homing", em2rs.position_valid===1 ? "valid" : "required"];
   const gd20Error = em2rs.gd20_error_kpa===null || em2rs.gd20_error_kpa===undefined
     ? null
     : `${em2rsNum(em2rs.gd20_error_kpa, 1)} kPa`;
   const gd20Stable = em2rs.gd20_stable===1;
   const gd20Text = gd20Stable
-    ? (gd20Error ? `ustálený (${gd20Error})` : "ustálený")
-    : (gd20Error ? `nie (${gd20Error})` : "nie");
+    ? (gd20Error ? `stable (${gd20Error})` : "stable")
+    : (gd20Error ? `no (${gd20Error})` : "no");
   const gd20Class = gd20Stable ? "ok" : "bad";
   armEm2rsSettle(em2rs);
   const rows = [
-    ["Režim", em2rs.mode || "-"],
+    ["Mode", em2rs.mode || "-"],
     ["Setpoint p7", setpoint],
-    ["Požadované", requested],
-    ["Skutočné", actual],
-    ["Kontrola pulzov", check],
-    ["Fáza", em2rsPhaseLabel(em2rs)],
+    ["Requested", requested],
+    ["Actual", actual],
+    ["Pulse check", check],
+    ["Phase", em2rsPhaseLabel(em2rs)],
   ];
 
   const rowCount=Math.ceil(rows.length / 2);
@@ -589,7 +639,7 @@ function renderEm2rs(em2rs, serverTime, pressure){
         <td class="em2rs-label">${left ? escapeHtml(left[0]) : ""}</td>
         <td class="em2rs-value">${left ? escapeHtml(left[1]) : ""}</td>
         <td class="em2rs-label">${mid ? escapeHtml(mid[0]) : ""}</td>
-        <td class="em2rs-value"${mid && mid[0]==="Fáza" ? " id=\"em2rsPhase\"" : ""}>${mid ? escapeHtml(mid[1]) : ""}</td>
+        <td class="em2rs-value"${mid && mid[0]==="Phase" ? " id=\"em2rsPhase\"" : ""}>${mid ? escapeHtml(mid[1]) : ""}</td>
         ${r===0 ? `<td class="em2rs-label">${escapeHtml(homing[0])}</td><td class="em2rs-value">${escapeHtml(homing[1])}</td>` : ""}
         ${r===1 ? `<td class="em2rs-label">${escapeHtml(pressureName)}</td><td class="em2rs-value">${escapeHtml(pressureText)}</td>` : ""}
         ${r===2 ? `<td class="em2rs-label ${gd20Class}">INVT</td><td class="em2rs-value ${gd20Class}">${escapeHtml(gd20Text)}</td>` : ""}
@@ -780,7 +830,7 @@ function sendEm2rsSetpoint(){
 
   if(!Number.isFinite(setpoint) || setpoint<low || setpoint>high){
     const note=document.getElementById("em2rsNote");
-    if(note) note.textContent=`Setpoint musí byť ${low}..${high} kPa`;
+    if(note) note.textContent=`Setpoint must be ${low}..${high} kPa`;
     return;
   }
 
@@ -797,11 +847,11 @@ function sendEm2rsPosition(){
 
   if(!Number.isFinite(percent) || percent<0 || percent>100){
     const note=document.getElementById("em2rsNote");
-    if(note) note.textContent="Poloha musí byť 0..100 %";
+    if(note) note.textContent="Position must be 0..100 %";
     return;
   }
 
-  sendEm2rs("/api/em2rs/position", {position_pct:percent}, `Poloha ${percent} % queued`);
+  sendEm2rs("/api/em2rs/position", {position_pct:percent}, `Position ${percent} % queued`);
 }
 
 

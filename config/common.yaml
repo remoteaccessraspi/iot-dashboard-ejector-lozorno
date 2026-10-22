@@ -1,7 +1,7 @@
 modbus: 
   method: rtu
   #port: /dev/ttyUSB0
-  port: /dev/serial/by-id/usb-FTDI_FT232R_USB_UART_A5069RR4-if00-port0
+  port: /dev/serial/by-id/usb-FTDI_FT232R_USB_UART_BG03G8OQ-if00-port0
   baudrate: 9600
   parity: N
   stopbits: 1

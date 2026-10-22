@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>IOT HMI - EM2RS-556</title>
+  <title>IOT HMI - {{ card_alias("em2rs_556") }}</title>
   <link rel="stylesheet" href="{{ request.url_for('static', path='css/style.css') }}?v=em2rs-park-stop">
 </head>
 <body>
@@ -57,7 +57,7 @@ const EM2RS_SETPOINT_MIN = {{ setpoint_min }};
 const EM2RS_SETPOINT_MAX = {{ setpoint_max }};
 </script>
 
-<script src="{{ request.url_for('static', path='js/main.js') }}?v=em2rs-park-stop"></script>
+<script src="{{ request.url_for('static', path='js/main.js') }}?v=en-labels"></script>
 
 </body>
 </html>

@@ -18,6 +18,9 @@ from iot_core.modbus.compat import call_with_fallback
 PARAM_CODES = (
     "P00.01",
     "P00.06",
+    "P01.21",
+    "P05.04",
+    "P05.10",
     "P09.00",
     "P09.02",
     "P09.03",
@@ -30,6 +33,9 @@ PARAM_CODES = (
 PARAM_MEANING = {
     "P00.01": {0: "keypad", 1: "terminal", 2: "communication"},
     "P00.06": {7: "internal PID"},
+    "P01.21": {0: "no restart after power loss", 1: "restart after power loss"},
+    "P05.04": {6: "S4 coast to stop"},
+    "P05.10": {8: "S4 open contact = coast stop"},
     "P09.00": {6: "Modbus"},
     "P09.02": {0: "AI1", 1: "AI2", 2: "AI3", 3: "HDI", 4: "Modbus"},
 }

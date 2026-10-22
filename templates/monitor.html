@@ -2,14 +2,12 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>IOT HMI</title>
-  <link rel="stylesheet" href="{{ request.url_for('static', path='css/style.css') }}">
+  <title>IOT HMI - {{ model }}</title>
+  <link rel="stylesheet" href="{{ request.url_for('static', path='css/style.css') }}?v=ck3083-gap">
 </head>
 <body>
 
 {% include "header.html" %}
-
-<div class="title">IOT HMI</div>
 
 <div class="meta">
   Auto refresh: <span id="refreshMs"></span> ms |
@@ -19,28 +17,28 @@
 
 <div class="row">
 
-  <!-- TEMPERATURE -->
   <div class="card">
-    <div class="title">Temperatures (°C)</div>
+    <div class="title">{{ model }}</div>
+    {% if device == "ck3083" %}
     <div class="small">
-      Last DB write: <span id="tLastDb">-</span>
+      PT100 · Last DB write: <span id="tLastDb">-</span>
     </div>
     <table id="tTable"></table>
-  </div>
-
-  <!-- CURRENT -->
-  <div class="card">
-    <div class="title">Currents (mA)</div>
+    {% else %}
     <div class="small">
-      Last DB write: <span id="iLastDb">-</span>
+      4–20 mA · Last DB write: <span id="iLastDb">-</span>
     </div>
-    <table id="iTable"></table>
-  </div>
-
-  <!-- PRESSURE -->
-  <div class="card">
-    <div class="title">Pressures</div>
-    <table id="pTable"></table>
+    <div class="device-cols">
+      <div>
+        <div class="section-title">Currents</div>
+        <table id="iTable"></table>
+      </div>
+      <div>
+        <div class="section-title">Pressures</div>
+        <table id="pTable"></table>
+      </div>
+    </div>
+    {% endif %}
   </div>
 
 </div>
@@ -49,7 +47,7 @@
 const REFRESH_MS = {{ refresh_ms }};
 </script>
 
-<script src="{{ request.url_for('static', path='js/main.js') }}"></script>
+<script src="{{ request.url_for('static', path='js/main.js') }}?v=ck-no-head"></script>
 
 </body>
 </html>

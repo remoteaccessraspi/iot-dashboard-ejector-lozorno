@@ -1,3 +1,6 @@
+ck_7082e_8ch:
+  alias: "CK-7082E_8CH"
+
 modbus:
   slaves:
     "CK-7082E_8CH": 3

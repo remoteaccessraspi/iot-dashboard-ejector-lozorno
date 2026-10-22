@@ -1,6 +1,7 @@
 # INVT GD20-EU na spoločnom Modbus RTU masteri.
 # Setpoint ide cez Modbus 0x2002. Spätná väzba PID je vlastný analógový vstup meniča, nie P6.
 invt_gd20:
+  alias: "INVT GD20"
   enabled: true
   slave_id: 100
 
@@ -35,6 +36,31 @@ invt_gd20:
   # je em2rs_556.valve.p7_trim.invt_tolerance_kpa.
   stability:
     max_age_s: 10
+
+  # Raz pri štarte mastera, teda aj po reboote Raspberry.
+  # Zapíše sa len required_value, ktoré sa od meniča líši.
+  # P00.01 a P05.04 menič prijme len keď stojí. Bežiaci motor sa kvôli setupu nezastavuje;
+  # tieto dva sa doplnia pri prvom STOP.
+  # Polarita S4 je pred funkciou S4, aby zopnutý rozpínací kontakt nespustil dobeh.
+  setup:
+    enabled: true
+    parameters:
+      - restart_after_power_off
+      - input_terminal_polarity
+      - run_command_source
+      - s4_terminal_function
+    stop_only:
+      - run_command_source
+      - s4_terminal_function
+
+  # Spínač poruchy medzi S4 a COM. V kľude je zopnutý.
+  # P05.10 bit3 otáča logiku, takže rozopnutie (aj prerušený vodič) spustí voľný dobeh.
+  # Po zopnutí späť menič nehlási chybu a motor sám nenaštartuje.
+  external_stop:
+    enabled: true
+    terminal: "S4"
+    bit: 3
+    active_value: 1
 
   commands:
 
@@ -181,7 +207,7 @@ invt_gd20:
       scale: 0.01
 
     ai2:
-      alias: "ai2_value"
+      alias: "p_gen_prim_from_frq"
       address: 0x300D
       access: "read"
       scale: 0.01
@@ -201,6 +227,28 @@ invt_gd20:
       address: 0x0001
       access: "read_write"
       required_value: 2
+
+    restart_after_power_off:
+      alias: "restart_after_power_off"
+      parameter: "P01.21"
+      address: 0x0115
+      access: "read_write"
+      required_value: 0
+
+    s4_terminal_function:
+      alias: "s4_terminal_function"
+      parameter: "P05.04"
+      address: 0x0504
+      access: "read_write"
+      required_value: 6
+
+    # Bit3 = S4. Hodnota 8 necháva S1–S3 v priamej logike a S4 v opačnej.
+    input_terminal_polarity:
+      alias: "input_terminal_polarity"
+      parameter: "P05.10"
+      address: 0x050A
+      access: "read_write"
+      required_value: 8
 
     max_frequency:
       alias: "max_frequency_hz"

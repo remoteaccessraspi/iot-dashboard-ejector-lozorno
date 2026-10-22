@@ -1,5 +1,5 @@
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -33,6 +33,28 @@ app.mount(
 templates = Jinja2Templates(
     directory=str(BASE_DIR / "templates")
 )
+
+_CARD_ALIAS_FALLBACK = {
+    "ck_3083es_8ch": "CK-3083ES_8CH",
+    "ck_7082e_8ch": "CK-7082E_8CH",
+    "invt_gd20": "INVT GD20",
+    "em2rs_556": "EM2RS-556",
+}
+
+
+def card_alias(device):
+
+    section = current_cfg().get(device)
+
+    if isinstance(section, dict):
+        alias = str(section.get("alias") or "").strip()
+        if alias:
+            return alias
+
+    return _CARD_ALIAS_FALLBACK.get(device, device)
+
+
+templates.env.globals["card_alias"] = card_alias
 
 
 # --------------------------------------------------
@@ -152,14 +174,36 @@ def gd20_row_visible(cfg):
 # ROUTES
 # --------------------------------------------------
 
-@app.get("/", response_class=HTMLResponse)
-def monitor(request: Request):
+@app.get("/")
+def monitor_home():
+
+    return RedirectResponse(url="/ck-3083es", status_code=302)
+
+
+@app.get("/ck-3083es", response_class=HTMLResponse)
+def ck3083_page(request: Request):
 
     return templates.TemplateResponse(
         "monitor.html",
         {
             "request": request,
-            "refresh_ms": _refresh_ms
+            "refresh_ms": _refresh_ms,
+            "device": "ck3083",
+            "model": card_alias("ck_3083es_8ch"),
+        }
+    )
+
+
+@app.get("/ck-7082e", response_class=HTMLResponse)
+def ck7082_page(request: Request):
+
+    return templates.TemplateResponse(
+        "monitor.html",
+        {
+            "request": request,
+            "refresh_ms": _refresh_ms,
+            "device": "ck7082",
+            "model": card_alias("ck_7082e_8ch"),
         }
     )
 
@@ -176,8 +220,9 @@ def graph_page(request: Request):
     cfg = current_cfg()
     monitoring = (cfg.get("invt_gd20") or {}).get("monitoring") or {}
     visible = gd20_row_visible(cfg)
-    ai2_label = (monitoring.get("ai2") or {}).get("alias") or "ai2_value"
+    ai2_label = (monitoring.get("ai2") or {}).get("alias") or "p_gen_prim_from_frq"
     pid_label = (monitoring.get("pid_feedback") or {}).get("engineering_alias") or "pid_feedback_kpa"
+    pressure = (cfg.get("invt_gd20") or {}).get("pressure") or {}
 
     return templates.TemplateResponse(
         "graph.html",
@@ -189,6 +234,8 @@ def graph_page(request: Request):
             "p_units": p_units,
             "ai2_label": ai2_label,
             "pid_label": pid_label,
+            "gd20_min_kpa": pressure.get("min_kpa", 0),
+            "gd20_max_kpa": pressure.get("max_kpa", 1500),
             "show_gd20_ai2": visible["ai2"],
             "show_gd20_pid": visible["pid_feedback"],
         }
@@ -401,12 +448,13 @@ def gd20_payload(row, setpoint_command=None):
     updated = row.get("updated_ts")
     cfg = current_cfg()
     monitoring = (cfg.get("invt_gd20") or {}).get("monitoring") or {}
-    ai2_alias = (monitoring.get("ai2") or {}).get("alias") or "ai2_value"
+    ai2_alias = (monitoring.get("ai2") or {}).get("alias") or "p_gen_prim_from_frq"
 
     return {
         "device_id": int(row["device_id"]),
         "online": int(row["online"]),
         "running": int(row["running"]),
+        "external_stop": None if row.get("external_stop") is None else int(row["external_stop"]),
         "fault_code": None if row["fault_code"] is None else int(row["fault_code"]),
         "pid_setpoint_kpa": _num(row["pid_setpoint_kpa"]),
         "setpoint_command_kpa": _num(setpoint_command),
@@ -442,6 +490,20 @@ async def gd20_command(request: Request):
 
         with conn.cursor() as cur:
 
+            if run:
+                gd20_id = int((current_cfg().get("invt_gd20") or {}).get("slave_id", 100))
+                cur.execute(
+                    """
+                    SELECT external_stop
+                    FROM invt_gd20_state
+                    WHERE device_id = %s
+                    """,
+                    (gd20_id,),
+                )
+                state = cur.fetchone()
+                if state and int(state["external_stop"] or 0) == 1:
+                    raise HTTPException(status_code=409, detail="external stop is active")
+
             cur.execute(
                 """
                 INSERT INTO control (parameter, value, source)
@@ -456,6 +518,9 @@ async def gd20_command(request: Request):
                 """,
                 ("gd20_run", value),
             )
+
+    except HTTPException:
+        raise
 
     except Exception as e:
 
@@ -659,13 +724,13 @@ def _em2rs_blocks_motion():
         return None
 
     if int(row.get("running") or 0):
-        return "driver beží"
+        return "driver is running"
 
     if int(row.get("alarm") or 0):
         return "alarm"
 
     if str(row.get("mode") or "MANUAL").upper() == "AUTO":
-        return "režim Auto"
+        return "Auto mode"
 
     return None
 

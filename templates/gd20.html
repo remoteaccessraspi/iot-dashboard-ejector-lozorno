@@ -2,8 +2,8 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>IOT HMI - INVT GD20</title>
-  <link rel="stylesheet" href="{{ request.url_for('static', path='css/style.css') }}?v=gd20-layout-5">
+  <title>IOT HMI - {{ card_alias("invt_gd20") }}</title>
+  <link rel="stylesheet" href="{{ request.url_for('static', path='css/style.css') }}?v=ext-stop">
 </head>
 <body>
 
@@ -44,7 +44,7 @@ const GD20_SETPOINT_MIN = {{ setpoint_min }};
 const GD20_SETPOINT_MAX = {{ setpoint_max }};
 </script>
 
-<script src="{{ request.url_for('static', path='js/main.js') }}?v=gd20-layout"></script>
+<script src="{{ request.url_for('static', path='js/main.js') }}?v=ext-stop"></script>
 
 </body>
 </html>

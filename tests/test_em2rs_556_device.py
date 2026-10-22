@@ -272,7 +272,7 @@ class Em2rs556DeviceTest(unittest.TestCase):
             device = _fresh()
             device.note_boot("old-boot", "new-boot", path)
             client = _drive()
-            conn = _StateConn(("AUTO", 1, "starý alarm", "POSITION_MOVE", 1, 37.0, 222))
+            conn = _StateConn(("AUTO", 1, "old alarm", "POSITION_MOVE", 1, 37.0, 222))
 
             device._poll_motion(client, conn, False, 100)
 

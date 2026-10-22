@@ -3,7 +3,14 @@ from datetime import datetime
 
 from app import gd20_row_visible
 from iot_core.core.config import load_config
-from iot_core.devices.invt_gd20 import InvtGd20Device, gd20_is_running, gd20_stability, kpa_to_pid_raw
+from iot_core.devices.invt_gd20 import (
+    InvtGd20Device,
+    external_stop_active,
+    gd20_is_running,
+    gd20_setup_items,
+    gd20_stability,
+    kpa_to_pid_raw,
+)
 
 
 class Gd20StabilityTest(unittest.TestCase):
@@ -37,9 +44,37 @@ class Gd20StabilityTest(unittest.TestCase):
 
 class _Response:
 
+    def __init__(self, registers=None):
+
+        self.registers = registers or []
+
     def isError(self):
 
         return False
+
+
+class _SetupBus:
+
+    def __init__(self, words):
+
+        self.words = dict(words)
+        self.writes = []
+        self.reads = []
+
+    def read_holding_registers(self, address, count, device_id):
+
+        self.reads.append(address)
+
+        if address not in self.words:
+            return None
+
+        return _Response([self.words[address]])
+
+    def write_register(self, address, value, device_id):
+
+        self.writes.append((address, value, device_id))
+        self.words[address] = value
+        return _Response()
 
 
 class _Client:
@@ -86,6 +121,129 @@ class _Conn:
     def cursor(self):
 
         return _Cursor(self.row)
+
+
+class Gd20ExternalStopTest(unittest.TestCase):
+
+    def setUp(self):
+
+        cfg = load_config()["invt_gd20"]
+        self.stop = cfg["external_stop"]
+        self.device = InvtGd20Device(slave_id=100, device_cfg=cfg)
+        self.device._command_seen = True
+        self.device._command_ts = datetime(2026, 1, 1)
+
+    def test_open_s4_is_active_after_polarity(self):
+
+        self.assertTrue(external_stop_active(1 << 3, self.stop))
+        self.assertFalse(external_stop_active(0, self.stop))
+        self.assertIsNone(external_stop_active(None, self.stop))
+        self.assertIsNone(external_stop_active(1 << 3, {"enabled": False, "bit": 3}))
+
+    def test_run_during_external_stop_is_not_sent_after_the_switch_closes(self):
+
+        client = _Client()
+        ts = datetime(2026, 10, 14, 11, 0, 0)
+        conn = _Conn(("1", ts))
+
+        self.device._apply_pending_command(client, conn, external_stop=True)
+        self.device._apply_pending_command(client, conn, external_stop=False)
+
+        self.assertEqual(client.writes, [])
+
+    def test_run_is_written_when_the_switch_is_closed(self):
+
+        client = _Client()
+        conn = _Conn(("1", datetime(2026, 10, 14, 11, 1, 0)))
+
+        self.device._apply_pending_command(client, conn, external_stop=False)
+
+        self.assertEqual(client.writes, [(0x2000, 0x0001, 100)])
+
+    def test_stop_is_written_while_the_switch_is_open(self):
+
+        client = _Client()
+        conn = _Conn(("0", datetime(2026, 10, 14, 11, 2, 0)))
+
+        self.device._apply_pending_command(client, conn, external_stop=True)
+
+        self.assertEqual(client.writes, [(0x2000, 0x0005, 100)])
+
+
+class Gd20SetupTest(unittest.TestCase):
+
+    def setUp(self):
+
+        self.cfg = load_config()["invt_gd20"]
+        self.device = InvtGd20Device(slave_id=100, device_cfg=self.cfg)
+
+    def test_settings_list_the_boot_parameters(self):
+
+        items = gd20_setup_items(self.cfg)
+
+        self.assertEqual(
+            [(item["parameter"], item["expected"], item["stop_only"]) for item in items],
+            [
+                ("P01.21", 0, False),
+                ("P05.10", 8, False),
+                ("P00.01", 2, True),
+                ("P05.04", 6, True),
+            ],
+        )
+
+    def test_setup_writes_only_words_that_differ_and_polarity_before_s4(self):
+
+        bus = _SetupBus({
+            0x2100: 3,
+            0x0115: 1,
+            0x050A: 0,
+            0x0001: 2,
+            0x0504: 0,
+            0x0006: 0,
+        })
+
+        results = self.device.apply_setup(bus, frame_delay_s=0)
+
+        self.assertEqual(bus.writes, [(0x0115, 0, 100), (0x050A, 8, 100), (0x0504, 6, 100)])
+        self.assertEqual(
+            [item["action"] for item in results],
+            ["WROTE", "WROTE", "SKIP", "WROTE"],
+        )
+        self.assertTrue(self.device._setup_done)
+        self.assertNotIn(0x0006, [address for address, _value, _slave in bus.writes])
+
+    def test_setup_skips_a_matching_drive(self):
+
+        bus = _SetupBus({0x2100: 3, 0x0115: 0, 0x050A: 8, 0x0001: 2, 0x0504: 6})
+
+        results = self.device.apply_setup(bus, frame_delay_s=0)
+
+        self.assertEqual(bus.writes, [])
+        self.assertTrue(all(item["action"] == "SKIP" for item in results))
+        self.assertTrue(self.device._setup_done)
+        reads = len(bus.reads)
+        self.assertEqual(self.device.apply_setup(bus, frame_delay_s=0), [])
+        self.assertEqual(len(bus.reads), reads)
+
+    def test_stop_only_parameters_wait_until_the_drive_stops(self):
+
+        bus = _SetupBus({0x2100: 1, 0x0115: 0, 0x050A: 0, 0x0001: 0, 0x0504: 0})
+
+        running = self.device.apply_setup(bus, frame_delay_s=0, running=1)
+
+        self.assertEqual(bus.writes, [(0x050A, 8, 100)])
+        self.assertEqual([item["action"] for item in running], ["SKIP", "WROTE", "DEFER", "DEFER"])
+        self.assertFalse(self.device._setup_done)
+
+        bus.words[0x2100] = 3
+        stopped = self.device.apply_setup(bus, frame_delay_s=0, running=0)
+
+        self.assertEqual(
+            bus.writes,
+            [(0x050A, 8, 100), (0x0001, 2, 100), (0x0504, 6, 100)],
+        )
+        self.assertEqual([item["action"] for item in stopped], ["SKIP", "SKIP", "WROTE", "WROTE"])
+        self.assertTrue(self.device._setup_done)
 
 
 class Gd20SetpointSyncTest(unittest.TestCase):

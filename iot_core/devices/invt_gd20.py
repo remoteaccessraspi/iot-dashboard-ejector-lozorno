@@ -49,6 +49,72 @@ def gd20_is_running(status_code, running_values=(1, 2)):
     return code in {int(value) for value in running_values}
 
 
+def gd20_setup_items(device_cfg):
+
+    setup = (device_cfg or {}).get("setup") or {}
+
+    if not setup.get("enabled"):
+        return []
+
+    parameters = (device_cfg or {}).get("parameters") or {}
+    stop_only = {str(key) for key in (setup.get("stop_only") or [])}
+    items = []
+
+    for key in setup.get("parameters") or []:
+        spec = parameters.get(key)
+
+        if not isinstance(spec, dict) or "address" not in spec or "required_value" not in spec:
+            items.append({
+                "key": key,
+                "parameter": key,
+                "address": None,
+                "expected": None,
+                "stop_only": key in stop_only,
+                "error": "missing required_value",
+            })
+            continue
+
+        items.append({
+            "key": key,
+            "parameter": spec.get("parameter") or key,
+            "address": int(spec["address"]),
+            "expected": int(spec["required_value"]),
+            "stop_only": key in stop_only,
+            "error": None,
+        })
+
+    return items
+
+
+def _setup_result(parameter, address, expected, action, detail, actual=None):
+
+    return {
+        "parameter": parameter,
+        "address": address,
+        "expected": expected,
+        "actual": actual,
+        "action": action,
+        "detail": detail,
+    }
+
+
+def external_stop_active(raw, stop_cfg):
+
+    if not stop_cfg or not stop_cfg.get("enabled"):
+        return None
+
+    if raw is None:
+        return None
+
+    try:
+        level = (int(raw) >> int(stop_cfg["bit"])) & 1
+        active = int(stop_cfg.get("active_value", 1))
+    except (TypeError, ValueError, KeyError):
+        return None
+
+    return level == active
+
+
 def kpa_to_pid_raw(kpa, command):
 
     if kpa is None:
@@ -215,6 +281,8 @@ class InvtGd20Device(BaseDevice):
         # Setpoint sa posiela, kým sa 0x3008 nezhoduje s gd20_setpoint_kpa.
         self._setpoint_seen = False
         self._setpoint_ts = None
+        # Setup z configu sa dokončí raz po štarte. Ďalšie cykly ho už nečítajú.
+        self._setup_done = not bool((device_cfg.get("setup") or {}).get("enabled"))
 
     def execute(self, client, db_conn, ts):
 
@@ -243,12 +311,15 @@ class InvtGd20Device(BaseDevice):
             f"fb={values['pid_feedback_kpa']}",
             f"ai2={values['ai2_kpa']}",
             f"fault={values['fault_code']}",
+            f"ext={values['external_stop'] if values['external_stop'] is not None else '-'}",
             f"status={values['status_code'] if values['status_code'] is not None else '-'}",
             f"run={values['running'] if values['running'] is not None else '-'}",
         )
 
         try:
-            self._apply_pending_command(client, db_conn)
+            if not self._setup_done:
+                self.apply_setup(client, running=values["running"])
+            self._apply_pending_command(client, db_conn, values["external_stop"])
             synced_kpa = self._apply_pending_setpoint(
                 client,
                 db_conn,
@@ -331,10 +402,24 @@ class InvtGd20Device(BaseDevice):
         known_running = gd20_is_running(status_code, status_reg.get("running_values") or (1, 2))
         running = None if known_running is None else (1 if known_running else 0)
 
+        di_reg = self.monitoring.get("digital_input_state") or {}
+        di_raw = None
+        if "address" in di_reg:
+            time.sleep(0.03)
+            di_raw = _read_holding(
+                client,
+                int(di_reg["address"]),
+                1,
+                self.slave_id,
+            )
+        di_state = None if di_raw is None else int(di_raw[0])
+
         return {
             "running": running,
             "status_code": status_code,
             "status_read_ok": status_raw is not None,
+            "external_stop": external_stop_active(di_state, self.device_cfg.get("external_stop")),
+            "di_read_ok": di_raw is not None,
             "fault_code": fault_code,
             "pid_setpoint_kpa": percent_to_kpa(pid_set_percent, self.pressure),
             "pid_feedback_kpa": percent_to_kpa(pid_fb_percent, self.pressure),
@@ -371,7 +456,107 @@ class InvtGd20Device(BaseDevice):
 
         return {key: raw[index] for index, key in enumerate(_BLOCK_KEYS)}
 
-    def _apply_pending_command(self, client, db_conn):
+    def apply_setup(self, client, frame_delay_s=0.03, running=None):
+
+        """Raz po štarte mastera. Zapíše len required_value, ktoré sa líšia."""
+
+        if self._setup_done:
+            return []
+
+        items = gd20_setup_items(self.device_cfg)
+        results = []
+        pending = False
+
+        if running is None:
+            running = self._setup_running(client)
+
+        for item in items:
+            label = item["parameter"]
+            address = item["address"]
+            expected = item["expected"]
+
+            if item["error"] or address is None:
+                results.append(_setup_result(label, address, expected, "SKIP", item["error"]))
+                pending = True
+                print(f"GD20 setup {label} skipped: {item['error']}")
+                continue
+
+            if item["stop_only"] and running != 0:
+                results.append(_setup_result(label, address, expected, "DEFER", "drive is not stopped"))
+                pending = True
+                print(f"GD20 setup {label} 0x{address:04X} deferred until STOP")
+                continue
+
+            actual_words = _read_holding(client, address, 1, self.slave_id)
+
+            if actual_words is None:
+                results.append(_setup_result(label, address, expected, "READ_ERROR", "FC03 returned no word"))
+                pending = True
+                print(f"GD20 setup {label} 0x{address:04X} read failed")
+                continue
+
+            actual = int(actual_words[0])
+
+            if actual == expected:
+                results.append(_setup_result(label, address, expected, "SKIP", "already matches", actual))
+                print(f"GD20 setup {label} 0x{address:04X} {actual} == {expected}")
+                continue
+
+            if frame_delay_s:
+                time.sleep(frame_delay_s)
+
+            try:
+                written = _write_register(client, address, expected, self.slave_id)
+            except Exception as exc:
+                written = None
+                print(f"GD20 setup {label} 0x{address:04X} write failed: {exc}")
+
+            if not written or (hasattr(written, "isError") and written.isError()):
+                results.append(_setup_result(label, address, expected, "WRITE_FAILED", "FC06 failed", actual))
+                pending = True
+                print(f"GD20 setup {label} 0x{address:04X} {actual} -> {expected} WRITE_FAILED")
+                continue
+
+            if frame_delay_s:
+                time.sleep(frame_delay_s)
+
+            checked_words = _read_holding(client, address, 1, self.slave_id)
+            checked = None if checked_words is None else int(checked_words[0])
+
+            if checked != expected:
+                results.append(_setup_result(label, address, expected, "VERIFY_FAILED", "read-back differs", checked))
+                pending = True
+                print(f"GD20 setup {label} 0x{address:04X} read-back {checked} != {expected}")
+                continue
+
+            results.append(_setup_result(label, address, expected, "WROTE", "written and verified", checked))
+            print(f"GD20 setup {label} 0x{address:04X} {actual} -> {expected}")
+
+        if not pending:
+            self._setup_done = True
+
+        return results
+
+    def _setup_running(self, client):
+
+        status_reg = self.monitoring.get("status_word") or {}
+
+        if "address" not in status_reg:
+            return None
+
+        raw = _read_holding(client, int(status_reg["address"]), 1, self.slave_id)
+
+        if raw is None:
+            return None
+
+        known = gd20_is_running(raw[0], status_reg.get("running_values") or (1, 2))
+
+        if known is None:
+            return None
+
+        return 1 if known else 0
+
+    def _apply_pending_command(self, client, db_conn, external_stop=None):
 
         try:
             with db_conn.cursor() as cur:
@@ -401,6 +586,10 @@ class InvtGd20Device(BaseDevice):
         values = control["values"]
 
         if value == "1":
+            if external_stop:
+                print("GD20 RUN blocked by external stop")
+                self._command_ts = row[1]
+                return
             raw = int(values["run_forward"])
             label = "RUN"
         elif value == "0":
@@ -567,6 +756,10 @@ class InvtGd20Device(BaseDevice):
             columns.append("fault_code")
             params.append(values["fault_code"])
 
+        if values["di_read_ok"] and values["external_stop"] is not None:
+            columns.append("external_stop")
+            params.append(1 if values["external_stop"] else 0)
+
         if values["status_read_ok"]:
             columns.extend(("status_code", "running"))
             params.extend((values["status_code"], values["running"]))
@@ -632,6 +825,10 @@ class InvtGd20Device(BaseDevice):
         if values["fault_read_ok"]:
             columns.append("fault_code")
             params.append(values["fault_code"])
+
+        if values["di_read_ok"] and values["external_stop"] is not None:
+            columns.append("external_stop")
+            params.append(1 if values["external_stop"] else 0)
 
         placeholders = ", ".join(["%s"] * len(columns))
         sql = f"""

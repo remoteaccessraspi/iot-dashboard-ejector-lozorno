@@ -50,6 +50,40 @@ body {
   color: #2a7fbc;
 }
 
+.section-title {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #90caf9;
+}
+
+.device-cols {
+  display: flex;
+  gap: 96px;
+  align-items: flex-start;
+}
+
+.device-cols > * {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+#tTable td.ch-label,
+#tTable th:nth-child(odd) {
+  text-align: left !important;
+  white-space: nowrap;
+}
+
+#tTable td.ch-value,
+#tTable th:nth-child(even) {
+  text-align: right !important;
+  white-space: nowrap;
+  padding-right: 36px;
+}
+
+#tTable td.ch-value:not(:last-child) {
+  padding-right: 72px;
+}
+
 .meta { 
   color: #b0b0b0; 
   font-size: 1rem;
@@ -489,6 +523,10 @@ button:disabled {
   white-space: nowrap;
 }
 
+#gd20Table td.gd20-value:not(:last-child) {
+  padding-right: 48px;
+}
+
 /* ============================= */
 /* RESPONSIVE */
 /* ============================= */
@@ -514,6 +552,8 @@ button:disabled {
   html { font-size: 21px; }
 
   .card { flex: 1 1 100%; }
+
+  .device-cols { flex-direction: column; }
 
   input,
   select,

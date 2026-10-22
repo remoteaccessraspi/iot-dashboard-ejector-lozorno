@@ -1,6 +1,7 @@
 <div class="nav">
-  <a href="/" {% if request.url.path == '/' %}class="active"{% endif %}>Monitoring</a>
+  <a href="/ck-3083es" {% if request.url.path == '/ck-3083es' %}class="active"{% endif %}>{{ card_alias("ck_3083es_8ch") }}</a>
+  <a href="/ck-7082e" {% if request.url.path == '/ck-7082e' %}class="active"{% endif %}>{{ card_alias("ck_7082e_8ch") }}</a>
+  <a href="/gd20" {% if request.url.path == '/gd20' %}class="active"{% endif %}>{{ card_alias("invt_gd20") }}</a>
+  <a href="/em2rs" {% if request.url.path == '/em2rs' %}class="active"{% endif %}>{{ card_alias("em2rs_556") }}</a>
   <a href="/graph" {% if request.url.path == '/graph' %}class="active"{% endif %}>Graph</a>
-  <a href="/gd20" {% if request.url.path == '/gd20' %}class="active"{% endif %}>INVT GD20</a>
-  <a href="/em2rs" {% if request.url.path == '/em2rs' %}class="active"{% endif %}>EM2RS-556</a>
 </div>

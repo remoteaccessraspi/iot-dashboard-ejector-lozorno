@@ -61,23 +61,17 @@ function limitData(arr) {
 
 function autoScale(minVal, maxVal) {
 
-    if (!isFinite(minVal) || !isFinite(maxVal))
+    if (!Number.isFinite(minVal) || !Number.isFinite(maxVal))
         return { min: 0, max: 1 }
 
-    let minScaled = minVal >= 0 ? minVal * 0.8 : minVal * 1.2
-    let maxScaled = maxVal >= 0 ? maxVal * 1.2 : maxVal * 0.8
+    const span = Math.abs(maxVal - minVal)
+    const magnitude = Math.max(Math.abs(minVal), Math.abs(maxVal))
+    const pad = Math.max(span * 0.15, magnitude * 0.01, 0.5)
 
-    let range = maxScaled - minScaled
-    let minRange = Math.max(Math.abs(maxVal - minVal) * 0.1, 0.5)
-
-    if (range < minRange) {
-
-        let center = (maxVal + minVal) / 2
-        minScaled = center - minRange / 2
-        maxScaled = center + minRange / 2
+    return {
+        min: minVal - pad,
+        max: maxVal + pad
     }
-
-    return { min: minScaled, max: maxScaled }
 }
 
 //--------------------------------------------------
@@ -145,7 +139,7 @@ function getRange() {
     return { minutes: null, hours: 24 }
 }
 
-/** LIVE vždy používa minútové okno (aj keď je vybraný hodinový range). */
+/** LIVE drží 5 min, 10 min, 30 min a 1 h. Dlhší rozsah ukazuje posledných 10 min. */
 function getLiveMinutes() {
 
     const range = getRange()
@@ -153,7 +147,9 @@ function getLiveMinutes() {
     if (range.minutes)
         return Math.max(1, range.minutes)
 
-    // pri 1h/6h/... LIVE ukazuje posledných 10 min (vývojársky real-time)
+    if (range.hours === 1)
+        return 60
+
     return 10
 }
 
@@ -304,6 +300,37 @@ function buildSeries(data) {
 // RENDER / UPDATE CHART
 //--------------------------------------------------
 
+const axisUnits = {
+    id: "axisUnits",
+    afterDraw(chart) {
+        const area = chart.chartArea
+        if (!area) return
+
+        const ctx = chart.ctx
+        ctx.save()
+        ctx.fillStyle = "#fff"
+        ctx.font = "bold 18px Arial"
+        ctx.textBaseline = "bottom"
+
+        const press = chart.scales.yPress
+        const temp = chart.scales.yTemp
+        const line = 22
+        const y = area.top - 6 - line
+
+        if (press) {
+            ctx.textAlign = "left"
+            ctx.fillText("kPa", press.left, y)
+        }
+
+        if (temp) {
+            ctx.textAlign = "right"
+            ctx.fillText("°C", temp.right, y)
+        }
+
+        ctx.restore()
+    }
+}
+
 function renderChart(series) {
 
     if (chart)
@@ -312,6 +339,8 @@ function renderChart(series) {
     chart = new Chart(document.getElementById("chart"), {
 
         type: "line",
+
+        plugins: [axisUnits],
 
         data: {
             labels: series.labels,
@@ -322,6 +351,10 @@ function renderChart(series) {
 
             responsive: true,
             animation: false,
+
+            layout: {
+                padding: { top: 36 }
+            },
 
             interaction: {
                 mode: "index",
@@ -367,8 +400,8 @@ function renderChart(series) {
 
                 yPress: {
                     position: "left",
-                    min: series.pressScale.min,
-                    max: series.pressScale.max,
+                    min: limitsFor("yPress", series.pressScale).min,
+                    max: limitsFor("yPress", series.pressScale).max,
                     ticks: {
                         font: { size: 18, weight: "bold" },
                         color: "#fff"
@@ -381,8 +414,8 @@ function renderChart(series) {
 
                 yTemp: {
                     position: "right",
-                    min: series.tempScale.min,
-                    max: series.tempScale.max,
+                    min: limitsFor("yTemp", series.tempScale).min,
+                    max: limitsFor("yTemp", series.tempScale).max,
                     ticks: {
                         font: { size: 18, weight: "bold" },
                         color: "#fff"
@@ -398,6 +431,119 @@ function renderChart(series) {
     })
 }
 
+function axisExtent(datasets, axisId) {
+
+    let min = Infinity
+    let max = -Infinity
+
+    for (const ds of datasets) {
+
+        if (ds.yAxisID !== axisId) continue
+
+        for (const value of ds.data || []) {
+
+            if (value == null || !Number.isFinite(Number(value))) continue
+
+            const num = Number(value)
+            if (num < min) min = num
+            if (num > max) max = num
+        }
+    }
+
+    if (!Number.isFinite(min) || !Number.isFinite(max))
+        return null
+
+    return autoScale(min, max)
+}
+
+const axisMode = { yPress: "auto", yTemp: "auto" }
+
+function channelFullRange(cb) {
+
+    const declaredMin = Number(cb.dataset.fullMin)
+    const declaredMax = Number(cb.dataset.fullMax)
+
+    if (Number.isFinite(declaredMin) && Number.isFinite(declaredMax) && declaredMax > declaredMin)
+        return { min: declaredMin, max: declaredMax }
+
+    const text = cb.closest("label") ? cb.closest("label").textContent : ""
+    const match = text.match(/\((-?\d+(?:\.\d+)?)\s*-\s*(-?\d+(?:\.\d+)?)\)/)
+
+    if (!match) return null
+
+    return { min: Number(match[1]), max: Number(match[2]) }
+}
+
+function axisOfChannel(value) {
+
+    return value.toLowerCase().startsWith("t") ? "yTemp" : "yPress"
+}
+
+function fullSpan(axisId) {
+
+    let min = null
+    let max = null
+
+    document.querySelectorAll("input[type=checkbox]:checked").forEach(cb => {
+
+        if (axisOfChannel(cb.value) !== axisId) return
+
+        const span = channelFullRange(cb)
+        if (!span) return
+
+        min = min === null ? span.min : Math.min(min, span.min)
+        max = max === null ? span.max : Math.max(max, span.max)
+    })
+
+    if (min === null || max === null || max <= min) return null
+
+    return { min, max }
+}
+
+function limitsFor(axisId, fitted) {
+
+    if (axisMode[axisId] === "full") {
+        const full = fullSpan(axisId)
+        if (full) return full
+    }
+
+    return fitted || { min: 0, max: 1 }
+}
+
+function paintAxisButtons() {
+
+    const buttons = [
+        ["yPress", "btnScalePress"],
+        ["yTemp", "btnScaleTemp"],
+    ]
+
+    for (const [axisId, id] of buttons) {
+
+        const btn = document.getElementById(id)
+        if (!btn) continue
+
+        const full = axisMode[axisId] === "full"
+        btn.classList.toggle("axis-full", full)
+        btn.classList.toggle("axis-auto", !full)
+        btn.textContent = full ? "Full" : "Autoscale"
+    }
+}
+
+function toggleAxisScale(axisId) {
+
+    if (!chart || !chart.options.scales[axisId]) return
+
+    axisMode[axisId] = axisMode[axisId] === "full" ? "auto" : "full"
+
+    const fitted = axisExtent(chart.data.datasets, axisId) || autoScale(Infinity, -Infinity)
+    const limits = limitsFor(axisId, fitted)
+
+    chart.options.scales[axisId].min = limits.min
+    chart.options.scales[axisId].max = limits.max
+    paintAxisButtons()
+    chart.update("none")
+}
+
 function applySeriesToChart(series) {
 
     if (!chart) {
@@ -408,10 +554,13 @@ function applySeriesToChart(series) {
     chart.data.labels = series.labels
     chart.data.datasets = series.datasets
 
-    chart.options.scales.yTemp.min = series.tempScale.min
-    chart.options.scales.yTemp.max = series.tempScale.max
-    chart.options.scales.yPress.min = series.pressScale.min
-    chart.options.scales.yPress.max = series.pressScale.max
+    const tempLimits = limitsFor("yTemp", series.tempScale)
+    const pressLimits = limitsFor("yPress", series.pressScale)
+
+    chart.options.scales.yTemp.min = tempLimits.min
+    chart.options.scales.yTemp.max = tempLimits.max
+    chart.options.scales.yPress.min = pressLimits.min
+    chart.options.scales.yPress.max = pressLimits.max
 
     chart.update("none")
 }
@@ -533,5 +682,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // predvolene prvý dostupný kanál + načítaj graf
     ensureSelection()
+
+    const pressBtn = document.getElementById("btnScalePress")
+    const tempBtn = document.getElementById("btnScaleTemp")
+
+    if (pressBtn) pressBtn.addEventListener("click", () => toggleAxisScale("yPress"))
+    if (tempBtn) tempBtn.addEventListener("click", () => toggleAxisScale("yTemp"))
+    paintAxisButtons()
+
     loadGraph()
 })

@@ -348,7 +348,7 @@ class Em2rs556Device(BaseDevice):
         items = self._check_items(snapshot)
         status = overall_status(items)
         self._read_gd20(db_conn, ts)
-        gd20_text = "ustálený" if self.gd20_stable else "nie"
+        gd20_text = "stable" if self.gd20_stable else "no"
         gd20_error = "-" if self.gd20_error_kpa is None else f"{self.gd20_error_kpa:.1f}"
 
         print(
@@ -616,7 +616,7 @@ class Em2rs556Device(BaseDevice):
         self._quick_stop(client)
         self._clear_trim()
         self.alarm = True
-        self.alarm_text = f"beh dlhší ako {limit:.1f} s pre {steps} pulzov"
+        self.alarm_text = f"motion longer than {limit:.1f} s for {steps} pulses"
         self.motion_phase = "ALARM"
         self.position_check = "TIMEOUT"
         print("EM2RS", self.alarm_text)
@@ -624,7 +624,7 @@ class Em2rs556Device(BaseDevice):
     def _finish_homing_move(self, client, actual_steps):
 
         if actual_steps is None or self._start_steps is None:
-            self._latch_alarm("chýba počítadlo po homingu")
+            self._latch_alarm("counter missing after homing")
             self._set_enable(client, False)
             return
 
@@ -635,7 +635,7 @@ class Em2rs556Device(BaseDevice):
         if got != self.expected_delta_steps:
             self.position_check = "DIFFERENT"
             self._latch_alarm(
-                f"homing očakával {self.expected_delta_steps} pulzov, počítadlo {got}"
+                f"homing expected {self.expected_delta_steps} pulses, counter {got}"
             )
             self._set_enable(client, False)
             return
@@ -663,13 +663,13 @@ class Em2rs556Device(BaseDevice):
             print("EM2RS homing zero ok")
             return
 
-        self._latch_alarm("počítadlo po homingu nie je 0")
+        self._latch_alarm("counter is not 0 after homing")
         self._set_enable(client, False)
 
     def _finish_position(self, client, actual_steps):
 
         if actual_steps is None or self._start_steps is None or self._target_steps is None:
-            self._latch_alarm("chýba počítadlo po posune")
+            self._latch_alarm("counter missing after move")
             self._set_enable(client, False)
             return
 
@@ -684,14 +684,14 @@ class Em2rs556Device(BaseDevice):
             self._set_enable(client, False)
             if self._trim_step is not None:
                 self._begin_trim_settle()
-                print(f"EM2RS trim pozícia {self._target_steps} ok")
+                print(f"EM2RS trim position {self._target_steps} ok")
                 return
             self.motion_phase = "IDLE"
             print(f"EM2RS position {self._target_steps} ok")
             return
 
         self.position_check = "DIFFERENT"
-        self._latch_alarm(f"očakávaný posun {expected}, skutočný {got}")
+        self._latch_alarm(f"expected move {expected}, actual {got}")
         self._set_enable(client, False)
 
     def _accept_requests(self, client, db_conn, actual_steps):
@@ -794,7 +794,7 @@ class Em2rs556Device(BaseDevice):
 
         if phase in ("HOMING_MOVE", "HOMING_ZERO", "POSITION_MOVE"):
             self.alarm = True
-            self.alarm_text = "pohyb prerušený reštartom"
+            self.alarm_text = "motion interrupted by restart"
             self.motion_phase = "ALARM"
 
     def note_gd20(self, slave_id, tolerance_kpa, max_age_s):
@@ -876,7 +876,7 @@ class Em2rs556Device(BaseDevice):
         self.alarm = False
         self.alarm_text = None
         self.motion_phase = "IDLE"
-        print("EM2RS reboot, homing čaká na počítadlo")
+        print("EM2RS reboot, homing waits for the counter")
         return True
 
     def _poll_boot_homing(self, client, actual_steps):
@@ -894,7 +894,7 @@ class Em2rs556Device(BaseDevice):
 
         self._boot_homing = False
         self._commit_boot_id()
-        print("EM2RS homing po reboote")
+        print("EM2RS homing after reboot")
         return True
 
     def _commit_boot_id(self):
@@ -979,7 +979,7 @@ class Em2rs556Device(BaseDevice):
             return False
 
         if self._start_park(client, actual_steps):
-            print(f"EM2RS INVT stop, parkovanie {self.device_cfg['valve']['park_percent']:g} %")
+            print(f"EM2RS INVT stop, parking at {self.device_cfg['valve']['park_percent']:g} %")
             return True
 
         return False
@@ -991,7 +991,7 @@ class Em2rs556Device(BaseDevice):
             return
 
         if not self.position_valid:
-            self.alarm_text = "najprv homing"
+            self.alarm_text = "homing required first"
             print("EM2RS position refused, homing required")
             return
 
@@ -1091,7 +1091,7 @@ class Em2rs556Device(BaseDevice):
         self._trim_confirm += 1
 
         if self._trim_confirm < int(trim["confirm_samples"]):
-            print(f"EM2RS trim potvrdenie {self._trim_confirm}, chyba {error:.1f} kPa")
+            print(f"EM2RS trim confirm {self._trim_confirm}, error {error:.1f} kPa")
             return
 
         self._trim_confirm = 0
@@ -1153,7 +1153,7 @@ class Em2rs556Device(BaseDevice):
         delta = target - int(actual_steps)
 
         if delta == 0:
-            print("EM2RS trim krok 0, stojí na doraze")
+            print("EM2RS trim step 0, at the travel limit")
             self._clear_trim()
             self.motion_phase = "IDLE"
             return
@@ -1166,7 +1166,7 @@ class Em2rs556Device(BaseDevice):
         full = int(valve["full_travel_steps"])
         percent = None if not full else target * 100.0 / full
         self._write_absolute_move(client, actual_steps, target, percent)
-        print(f"EM2RS trim {delta} pulzov -> {target}, p7 {p7:.1f}")
+        print(f"EM2RS trim {delta} pulses -> {target}, p7 {p7:.1f}")
 
     def _begin_trim_settle(self):
 
@@ -1181,7 +1181,7 @@ class Em2rs556Device(BaseDevice):
         self._trim_settle_p7 = []
         self._trim_extended = False
         self.motion_phase = "TRIM_SETTLE"
-        print(f"EM2RS trim čaká {self._trim_settle_wait:.0f} s")
+        print(f"EM2RS trim waiting {self._trim_settle_wait:.0f} s")
 
     def _trim_after_wait(self, client, db_conn, actual_steps, now, trim):
 
@@ -1209,13 +1209,13 @@ class Em2rs556Device(BaseDevice):
                 self._trim_settle_wait += extra
                 if self._trim_settle_deadline is not None:
                     self._trim_settle_deadline += extra
-                print("EM2RS trim čakanie predĺžené, p7 sa ešte hýbe")
+                print("EM2RS trim wait extended, p7 still moving")
                 return
 
         if not self.gd20_stable:
             if self.motion_phase != "TRIM_HOLD":
                 self.motion_phase = "TRIM_HOLD"
-                print("EM2RS trim čaká na INVT")
+                print("EM2RS trim waiting for INVT")
             return
 
         if setpoint is None or p7 is None or actual_steps is None:
@@ -1224,7 +1224,7 @@ class Em2rs556Device(BaseDevice):
         error = setpoint - p7
 
         if abs(error) <= float(trim["stop_band_kpa"]):
-            print(f"EM2RS trim v pásme, chyba {error:.1f} kPa")
+            print(f"EM2RS trim inside the band, error {error:.1f} kPa")
             self._clear_trim()
             self.motion_phase = "IDLE"
             return
@@ -1235,13 +1235,13 @@ class Em2rs556Device(BaseDevice):
         )
 
         if no_response:
-            print(f"EM2RS trim p7 bez odozvy, chyba {error:.1f} kPa")
+            print(f"EM2RS trim p7 no response, error {error:.1f} kPa")
             step = half_trim_step(self._trim_step)
         else:
             step = trim_step_pulses(error, trim["k_kpa_per_step"])
 
         if step == 0:
-            print("EM2RS trim polovica je 0")
+            print("EM2RS trim half step is 0")
             self._clear_trim()
             self.motion_phase = "IDLE"
             return
@@ -1286,11 +1286,11 @@ class Em2rs556Device(BaseDevice):
 
         self._io_enable_released = True
         if actual == 0:
-            print("EM2RS SI1 0x0145 0, DI1 neriadi enable")
+            print("EM2RS SI1 0x0145 0, DI1 does not control enable")
             return
 
         if self._write_register_pause(client, address, 0):
-            print(f"EM2RS SI1 0x0145 {actual} -> 0, DI1 už neriadi enable")
+            print(f"EM2RS SI1 0x0145 {actual} -> 0, DI1 no longer controls enable")
             return
 
         self._io_enable_released = False

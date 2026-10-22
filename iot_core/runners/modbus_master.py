@@ -137,6 +137,15 @@ def main():
 
     for device in devices:
 
+        if isinstance(device, InvtGd20Device):
+
+            try:
+                device.apply_setup(client, frame_delay_s=FRAME_DELAY)
+            except Exception as e:
+                print("GD20 setup failed:", e)
+
+            time.sleep(FRAME_DELAY)
+
         if isinstance(device, Em2rs556Device):
 
             try:

@@ -1,3 +1,6 @@
+ck_3083es_8ch:
+  alias: "CK-3083ES_8CH"
+
 modbus:
   slaves:
     "CK-3083ES_8CH": 2
