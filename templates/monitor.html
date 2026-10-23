@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <title>IOT HMI - {{ model }}</title>
-  <link rel="stylesheet" href="{{ request.url_for('static', path='css/style.css') }}?v=ck3083-gap">
+  <link rel="stylesheet" href="{{ request.url_for('static', path='css/style.css') }}?v=warn-bottom">
 </head>
 <body>
 
@@ -39,6 +39,7 @@
       </div>
     </div>
     {% endif %}
+    <div id="warnBar" class="alarm-bar" hidden></div>
   </div>
 
 </div>

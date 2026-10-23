@@ -1,5 +1,5 @@
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -11,9 +11,25 @@ import math
 
 import pymysql
 
-from iot_core.core.config import load_config
+from iot_core.alarms.book import AlarmBook, SqlRepo
+from iot_core.core.config import load_config, load_hmi_secrets
+from iot_core.ready import start_allowed
+from iot_core.service_mode import RUN_SOURCE
 from iot_core.devices.em2rs_556 import settle_remaining_s
-from iot_core.devices.invt_gd20 import gd20_is_running, gd20_sample_age_s, gd20_stability
+from iot_core.hmi.session import (
+    SERVICE_COOKIE,
+    idle_seconds,
+    password_matches,
+    read_session,
+    session_secret,
+    sign_session,
+)
+from iot_core.devices.invt_gd20 import (
+    gd20_is_running,
+    gd20_run_hours,
+    gd20_sample_age_s,
+    gd20_stability,
+)
 
 
 # --------------------------------------------------
@@ -76,9 +92,9 @@ _refresh_ms = _hmi_cfg.get("refresh_ms", 2000)
 # --------------------------------------------------
 
 # Údaje sa čítajú pri každom spojení, aby rotácia hesla nevyžadovala restart.
-def db_connect():
+def db_connect(cfg=None):
 
-    db_cfg = current_cfg()["database"]
+    db_cfg = (current_cfg() if cfg is None else cfg)["database"]
 
     return pymysql.connect(
         host=db_cfg["host"],
@@ -95,9 +111,9 @@ def db_connect():
 # CHANNEL UTIL
 # --------------------------------------------------
 
-def build_channel_cfg(prefix):
+def build_channel_cfg(prefix, cfg=None):
 
-    channels = current_cfg().get("channels", {})
+    channels = (current_cfg() if cfg is None else cfg).get("channels", {})
 
     names = []
     units = []
@@ -171,17 +187,159 @@ def gd20_row_visible(cfg):
 
 
 # --------------------------------------------------
+# SERVICE SESSION
+# --------------------------------------------------
+
+def service_idle_min():
+
+    hmi = current_cfg().get("hmi") or {}
+
+    return idle_seconds(hmi.get("service_idle_min", 30)) // 60
+
+
+def service_active(request):
+
+    secret = session_secret(load_hmi_secrets())
+
+    if secret is None:
+        return False
+
+    return read_session(
+        secret,
+        request.cookies.get(SERVICE_COOKIE, ""),
+        time.time(),
+    ) is not None
+
+
+def _apply_service_cookie(response):
+
+    secret = session_secret(load_hmi_secrets())
+
+    if secret is None:
+        raise HTTPException(status_code=503, detail="service session is not configured")
+
+    idle = service_idle_min() * 60
+    response.set_cookie(
+        SERVICE_COOKIE,
+        sign_session(secret, int(time.time()) + idle),
+        max_age=idle,
+        httponly=True,
+        samesite="lax",
+        path="/",
+    )
+
+
+def _clear_service_cookie(response):
+
+    response.delete_cookie(SERVICE_COOKIE, path="/")
+
+
+def store_service_session(active):
+
+    conn = None
+
+    try:
+        conn = db_connect()
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                REPLACE INTO control_state (parameter, value, source)
+                VALUES ('hmi_service', %s, 'hmi')
+                """,
+                ("1" if active else "0",),
+            )
+    except Exception as e:
+        print("service session:", e)
+    finally:
+        if conn:
+            conn.close()
+
+
+def _service_page(request):
+
+    if service_active(request):
+        return None
+
+    return RedirectResponse(url="/", status_code=302)
+
+
+def _service_api(request):
+
+    if not service_active(request):
+        raise HTTPException(status_code=401, detail="service session required")
+
+
+templates.env.globals["service_active"] = service_active
+templates.env.globals["service_idle_min"] = service_idle_min
+
+
+# --------------------------------------------------
 # ROUTES
 # --------------------------------------------------
 
-@app.get("/")
-def monitor_home():
+@app.get("/", response_class=HTMLResponse)
+def monitor_home(request: Request):
 
-    return RedirectResponse(url="/ck-3083es", status_code=302)
+    return templates.TemplateResponse(
+        "home.html",
+        {
+            "request": request,
+            "refresh_ms": _refresh_ms,
+        },
+    )
+
+
+@app.post("/api/hmi/service")
+async def hmi_service_login(request: Request):
+
+    try:
+        body = await request.json()
+    except Exception:
+        body = None
+
+    password = body.get("password") if isinstance(body, dict) else None
+
+    if not password_matches(password, load_hmi_secrets()):
+        raise HTTPException(status_code=401, detail="wrong password")
+
+    response = JSONResponse({"status": "ok"})
+    _apply_service_cookie(response)
+    store_service_session(True)
+    return response
+
+
+@app.post("/api/hmi/logout")
+def hmi_service_logout():
+
+    store_service_session(False)
+    response = JSONResponse({"status": "ok"})
+    _clear_service_cookie(response)
+    return response
+
+
+@app.post("/api/hmi/activity")
+def hmi_service_activity(request: Request):
+
+    _service_api(request)
+    store_service_session(True)
+    response = JSONResponse({"status": "ok"})
+    _apply_service_cookie(response)
+    return response
+
+
+@app.get("/api/hmi/session")
+def hmi_service_session(request: Request):
+
+    return {"service": service_active(request)}
 
 
 @app.get("/ck-3083es", response_class=HTMLResponse)
 def ck3083_page(request: Request):
+
+    denied = _service_page(request)
+
+    if denied:
+        return denied
 
     return templates.TemplateResponse(
         "monitor.html",
@@ -196,6 +354,11 @@ def ck3083_page(request: Request):
 
 @app.get("/ck-7082e", response_class=HTMLResponse)
 def ck7082_page(request: Request):
+
+    denied = _service_page(request)
+
+    if denied:
+        return denied
 
     return templates.TemplateResponse(
         "monitor.html",
@@ -249,6 +412,11 @@ def graph_page(request: Request):
 @app.get("/gd20", response_class=HTMLResponse)
 def gd20_page(request: Request):
 
+    denied = _service_page(request)
+
+    if denied:
+        return denied
+
     setpoint_min, setpoint_max = _gd20_setpoint_limits()
 
     return templates.TemplateResponse(
@@ -269,7 +437,9 @@ def gd20_page(request: Request):
 @app.get("/api/latest")
 def api_latest():
 
+    cfg = current_cfg()
     db_ok = True
+    ready = False
     conn = None
     gd20_row = None
     em2rs_row = None
@@ -277,7 +447,7 @@ def api_latest():
 
     try:
 
-        conn = db_connect()
+        conn = db_connect(cfg)
 
         with conn.cursor() as cur:
 
@@ -298,7 +468,7 @@ def api_latest():
             r = cur.fetchone()
             i_last = r["ts"] if r else None
 
-            gd20_id = int((current_cfg().get("invt_gd20") or {}).get("slave_id", 100))
+            gd20_id = int((cfg.get("invt_gd20") or {}).get("slave_id", 100))
             cur.execute(
                 "SELECT * FROM invt_gd20_state WHERE device_id = %s",
                 (gd20_id,),
@@ -319,7 +489,7 @@ def api_latest():
             em2rs_cmd = cur.fetchone()
             em2rs_setpoint_command = None if em2rs_cmd is None else em2rs_cmd["value"]
 
-            em2rs_id = int((current_cfg().get("em2rs_556") or {}).get("slave_id", 31))
+            em2rs_id = int((cfg.get("em2rs_556") or {}).get("slave_id", 31))
             cur.execute(
                 "SELECT * FROM em2rs_556_state WHERE device_id = %s",
                 (em2rs_id,),
@@ -329,6 +499,12 @@ def api_latest():
             cur.execute("SELECT ts FROM em2rs_556 ORDER BY id DESC LIMIT 1")
             sample = cur.fetchone()
             em2rs_sample_ts = sample["ts"] if sample else None
+
+        try:
+            ready = start_allowed(conn, cfg)
+        except Exception as e:
+            print("start check:", e)
+            ready = False
 
     except:
 
@@ -349,9 +525,9 @@ def api_latest():
         if conn:
             conn.close()
 
-    t_names, t_units = build_channel_cfg("t")
-    i_names, i_units = build_channel_cfg("i")
-    p_names, p_units = build_channel_cfg("p")
+    t_names, t_units = build_channel_cfg("t", cfg)
+    i_names, i_units = build_channel_cfg("i", cfg)
+    p_names, p_units = build_channel_cfg("p", cfg)
 
     return {
 
@@ -373,23 +549,28 @@ def api_latest():
         "p_units": p_units,
 
         "t_last_db": t_last.strftime("%Y-%m-%d %H:%M:%S") if t_last else None,
+        "ready": ready,
         "i_last_db": i_last.strftime("%Y-%m-%d %H:%M:%S") if i_last else None,
 
-        "gd20": gd20_payload(gd20_row, gd20_setpoint_command),
+        "gd20": gd20_payload(gd20_row, gd20_setpoint_command, cfg),
         "em2rs": _em2rs_with_gd20(
-            em2rs_payload(em2rs_row, em2rs_sample_ts, em2rs_setpoint_command),
+            em2rs_payload(em2rs_row, em2rs_sample_ts, em2rs_setpoint_command, cfg),
             gd20_row,
+            cfg,
         ),
     }
 
 
-def _em2rs_with_gd20(payload, gd20_row):
+def _em2rs_with_gd20(payload, gd20_row, cfg=None):
 
     if payload is None:
         return None
 
-    gd20_cfg = current_cfg().get("invt_gd20") or {}
-    em2rs_cfg = current_cfg().get("em2rs_556") or {}
+    if cfg is None:
+        cfg = current_cfg()
+
+    gd20_cfg = cfg.get("invt_gd20") or {}
+    em2rs_cfg = cfg.get("em2rs_556") or {}
     trim = ((em2rs_cfg.get("valve") or {}).get("p7_trim") or {})
     max_age_s = ((gd20_cfg.get("stability") or {}).get("max_age_s", 10))
     updated = None if gd20_row is None else gd20_row.get("updated_ts")
@@ -440,13 +621,14 @@ def _num(value):
     return float(value)
 
 
-def gd20_payload(row, setpoint_command=None):
+def gd20_payload(row, setpoint_command=None, cfg=None):
 
     if not row:
         return None
 
     updated = row.get("updated_ts")
-    cfg = current_cfg()
+    if cfg is None:
+        cfg = current_cfg()
     monitoring = (cfg.get("invt_gd20") or {}).get("monitoring") or {}
     ai2_alias = (monitoring.get("ai2") or {}).get("alias") or "p_gen_prim_from_frq"
 
@@ -454,6 +636,7 @@ def gd20_payload(row, setpoint_command=None):
         "device_id": int(row["device_id"]),
         "online": int(row["online"]),
         "running": int(row["running"]),
+        "run_hours": gd20_run_hours(row.get("run_seconds")),
         "external_stop": None if row.get("external_stop") is None else int(row["external_stop"]),
         "fault_code": None if row["fault_code"] is None else int(row["fault_code"]),
         "pid_setpoint_kpa": _num(row["pid_setpoint_kpa"]),
@@ -481,7 +664,13 @@ async def gd20_command(request: Request):
     if not isinstance(run, bool):
         raise HTTPException(status_code=400, detail="run must be boolean")
 
+    service_run = run and body.get("service") is True
+
+    if service_run and not service_active(request):
+        raise HTTPException(status_code=401, detail="service session required")
+
     value = "1" if run else "0"
+    source = RUN_SOURCE if service_run else "hmi"
     conn = None
 
     try:
@@ -504,19 +693,33 @@ async def gd20_command(request: Request):
                 if state and int(state["external_stop"] or 0) == 1:
                     raise HTTPException(status_code=409, detail="external stop is active")
 
+                if not service_run:
+                    if AlarmBook(SqlRepo()).blocks(conn):
+                        raise HTTPException(status_code=409, detail="alarm inhibits run")
+
+                    if not start_allowed(conn, current_cfg()):
+                        raise HTTPException(status_code=409, detail="temperatures are not ready")
+                else:
+                    cur.execute(
+                        """
+                        REPLACE INTO control_state (parameter, value, source)
+                        VALUES ('gd20_temp_recover', '0', 'service')
+                        """
+                    )
+
             cur.execute(
                 """
                 INSERT INTO control (parameter, value, source)
-                VALUES (%s, %s, 'hmi')
+                VALUES (%s, %s, %s)
                 """,
-                ("gd20_run", value),
+                ("gd20_run", value, source),
             )
             cur.execute(
                 """
                 REPLACE INTO control_state (parameter, value, source)
-                VALUES (%s, %s, 'hmi')
+                VALUES (%s, %s, %s)
                 """,
-                ("gd20_run", value),
+                ("gd20_run", value, source),
             )
 
     except HTTPException:
@@ -552,6 +755,7 @@ def _gd20_setpoint_limits():
 @app.post("/api/gd20/setpoint")
 async def gd20_setpoint(request: Request):
 
+    _service_api(request)
     body = await request.json()
     setpoint = body.get("setpoint_kpa")
 
@@ -619,13 +823,16 @@ def _p7_setpoint_limits():
     return float(channel.get("a", 0)), float(channel.get("b", 220))
 
 
-def em2rs_payload(row, sample_ts=None, setpoint_command=None):
+def em2rs_payload(row, sample_ts=None, setpoint_command=None, cfg=None):
 
     if not row:
         return None
 
+    if cfg is None:
+        cfg = current_cfg()
+
     full = int(
-        ((current_cfg().get("em2rs_556") or {}).get("valve") or {}).get("full_travel_steps") or 0
+        ((cfg.get("em2rs_556") or {}).get("valve") or {}).get("full_travel_steps") or 0
     )
     actual = row.get("actual_position_steps")
     updated = row.get("updated_ts")
@@ -738,6 +945,11 @@ def _em2rs_blocks_motion():
 @app.get("/em2rs", response_class=HTMLResponse)
 def em2rs_page(request: Request):
 
+    denied = _service_page(request)
+
+    if denied:
+        return denied
+
     setpoint_min, setpoint_max = _p7_setpoint_limits()
 
     return templates.TemplateResponse(
@@ -756,6 +968,7 @@ def em2rs_page(request: Request):
 @app.post("/api/em2rs/mode")
 async def em2rs_mode(request: Request):
 
+    _service_api(request)
     body = await request.json()
     mode = str(body.get("mode", "")).strip().upper()
 
@@ -770,6 +983,7 @@ async def em2rs_mode(request: Request):
 @app.post("/api/em2rs/setpoint")
 async def em2rs_setpoint(request: Request):
 
+    _service_api(request)
     body = await request.json()
     setpoint = body.get("setpoint_kpa")
 
@@ -796,8 +1010,9 @@ async def em2rs_setpoint(request: Request):
 
 
 @app.post("/api/em2rs/homing")
-async def em2rs_homing():
+async def em2rs_homing(request: Request):
 
+    _service_api(request)
     reason = _em2rs_blocks_motion()
 
     if reason:
@@ -811,6 +1026,7 @@ async def em2rs_homing():
 @app.post("/api/em2rs/position")
 async def em2rs_position(request: Request):
 
+    _service_api(request)
     body = await request.json()
     percent = body.get("position_pct")
 
@@ -833,10 +1049,115 @@ async def em2rs_position(request: Request):
     return {"status": "ok", "position_pct": percent}
 
 
-@app.post("/api/em2rs/alarm-reset")
-async def em2rs_alarm_reset():
+def _alarm_time(value):
 
+    if value is None:
+        return None
+
+    if isinstance(value, datetime):
+        return value.strftime("%Y-%m-%d %H:%M:%S")
+
+    return str(value)
+
+
+@app.get("/api/alarms")
+def alarms_list():
+
+    conn = None
+
+    try:
+
+        conn = db_connect()
+        rows = AlarmBook(SqlRepo()).open_rows(conn)
+
+    except Exception as e:
+
+        raise HTTPException(status_code=500, detail="alarms were not read") from e
+
+    finally:
+
+        if conn:
+            conn.close()
+
+    alarms = []
+
+    for row in rows:
+        alarms.append({
+            "code": row["code"],
+            "source": row["source"],
+            "device_id": int(row["device_id"]),
+            "class": row["class"],
+            "message": row["message"],
+            "condition_on": int(row["condition_on"]),
+            "latched": int(row["latched"]),
+            "inhibit_run": int(row["inhibit_run"]),
+            "release_policy": row["release_policy"],
+            "acked": row.get("ack_ts") is not None,
+            "raised_ts": _alarm_time(row.get("raised_ts")),
+        })
+
+    return {"alarms": alarms}
+
+
+@app.post("/api/alarms/ack")
+async def alarms_ack(request: Request):
+
+    _service_api(request)
+    body = await request.json()
+    code = str(body.get("code") or "").strip()
+    source = str(body.get("source") or "").strip()
+    device_id = body.get("device_id")
+
+    if not code or not source or isinstance(device_id, bool) or not isinstance(device_id, int):
+        raise HTTPException(status_code=400, detail="code, source and device_id are required")
+
+    conn = None
+
+    try:
+
+        conn = db_connect()
+        found = AlarmBook(SqlRepo()).acknowledge(
+            conn, code, source, device_id, datetime.now(), "hmi"
+        )
+
+    except Exception as e:
+
+        raise HTTPException(status_code=500, detail="alarm was not acknowledged") from e
+
+    finally:
+
+        if conn:
+            conn.close()
+
+    if not found:
+        raise HTTPException(status_code=404, detail="alarm is not open")
+
+    return {"status": "ok"}
+
+
+@app.post("/api/em2rs/alarm-reset")
+async def em2rs_alarm_reset(request: Request):
+
+    _service_api(request)
     _store_control("em2rs_alarm_reset", str(time.time_ns()))
+    conn = None
+
+    try:
+
+        conn = db_connect()
+        device_id = int((current_cfg().get("em2rs_556") or {}).get("slave_id", 31))
+        AlarmBook(SqlRepo()).acknowledge(
+            conn, "EM2RS_FAULT", "em2rs_556", device_id, datetime.now(), "hmi"
+        )
+
+    except Exception as e:
+
+        print("EM2RS alarm ack:", e)
+
+    finally:
+
+        if conn:
+            conn.close()
 
     return {"status": "ok"}
 

@@ -1,6 +1,13 @@
 import time
 
+from iot_core.alarms.book import AlarmBook, SqlRepo, drive_fault
+from iot_core.core.config import load_config
 from iot_core.devices.base_device import BaseDevice
+from datetime import datetime
+
+from iot_core.hmi.session import idle_seconds
+from iot_core.ready import start_allowed
+from iot_core.service_mode import RUN_SOURCE, service_is_fresh
 from iot_core.modbus.compat import call_with_fallback
 
 
@@ -34,6 +41,55 @@ def _non_negative(value):
         return None
 
     return value
+
+
+# Medzera dlhšia ako dva poll cykly sa do prevádzkových hodín nepočíta.
+GD20_RUN_GAP_MAX_S = 10
+
+
+def gd20_run_account(previous_running, previous_ts, running, now, max_gap_s=GD20_RUN_GAP_MAX_S):
+
+    if running is None:
+        return 0, False
+
+    try:
+        current = int(running)
+    except (TypeError, ValueError):
+        return 0, False
+
+    try:
+        previous = None if previous_running is None else int(previous_running)
+    except (TypeError, ValueError):
+        previous = None
+
+    if previous != 1 or current != 1 or previous_ts is None or now is None:
+        return 0, True
+
+    try:
+        elapsed = (now - previous_ts).total_seconds()
+    except (TypeError, AttributeError):
+        return 0, True
+
+    if elapsed <= 0:
+        return 0, True
+
+    return int(round(min(elapsed, float(max_gap_s)))), True
+
+
+def gd20_run_hours(seconds):
+
+    if seconds is None:
+        return None
+
+    try:
+        whole = int(seconds)
+    except (TypeError, ValueError):
+        return None
+
+    if whole < 0:
+        return None
+
+    return round(whole / 3600, 1)
 
 
 def gd20_is_running(status_code, running_values=(1, 2)):
@@ -266,6 +322,8 @@ def _read_holding(client, address, count, slave_id):
 
 class InvtGd20Device(BaseDevice):
 
+    model = "INVT GD20"
+
     def __init__(self, slave_id, device_cfg):
 
         super().__init__(slave_id)
@@ -291,12 +349,12 @@ class InvtGd20Device(BaseDevice):
         except Exception as e:
             print("GD20 Modbus call failed:", e)
             self._set_offline(db_conn)
-            return
+            return False
 
         if values is None:
             print("GD20 OFFLINE")
             self._set_offline(db_conn)
-            return
+            return False
 
         print(
             "GD20",
@@ -319,7 +377,20 @@ class InvtGd20Device(BaseDevice):
         try:
             if not self._setup_done:
                 self.apply_setup(client, running=values["running"])
-            self._apply_pending_command(client, db_conn, values["external_stop"])
+            run_blocked = drive_fault(values["status_code"], values["fault_code"])
+
+            if not run_blocked:
+                try:
+                    run_blocked = AlarmBook(SqlRepo()).blocks(db_conn)
+                except Exception as e:
+                    print("GD20 alarm check:", e)
+
+            self._apply_pending_command(
+                client,
+                db_conn,
+                values["external_stop"],
+                run_blocked=run_blocked,
+            )
             synced_kpa = self._apply_pending_setpoint(
                 client,
                 db_conn,
@@ -327,7 +398,7 @@ class InvtGd20Device(BaseDevice):
             )
             if synced_kpa is not None:
                 values["pid_setpoint_kpa"] = synced_kpa
-            self._upsert_state(db_conn, values)
+            self._upsert_state(db_conn, values, ts)
             self._insert_history_if_due(db_conn, ts, values)
         except Exception as e:
             print("GD20 DB WRITE ERROR:", e)
@@ -335,6 +406,9 @@ class InvtGd20Device(BaseDevice):
                 db_conn.rollback()
             except Exception:
                 pass
+            return False
+
+        return True
 
     def _read_scaled(self, client):
 
@@ -556,13 +630,36 @@ class InvtGd20Device(BaseDevice):
 
         return 1 if known else 0
 
-    def _apply_pending_command(self, client, db_conn, external_stop=None):
+    def _service_session_open(self, db_conn):
 
         try:
             with db_conn.cursor() as cur:
                 cur.execute(
                     """
                     SELECT value, updated_ts
+                    FROM control_state
+                    WHERE parameter = %s
+                    """,
+                    ("hmi_service",),
+                )
+                row = cur.fetchone()
+        except Exception as e:
+            print("GD20 service check:", e)
+            return False
+
+        if not row:
+            return False
+
+        idle = idle_seconds((load_config().get("hmi") or {}).get("service_idle_min", 30))
+        return service_is_fresh(row[0], row[1], datetime.now(), idle)
+
+    def _apply_pending_command(self, client, db_conn, external_stop=None, run_blocked=False):
+
+        try:
+            with db_conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT value, updated_ts, source
                     FROM control_state
                     WHERE parameter = %s
                     """,
@@ -582,6 +679,7 @@ class InvtGd20Device(BaseDevice):
             return
 
         value = str(row[0]).strip()
+        source = str(row[2]).strip() if len(row) > 2 and row[2] is not None else "hmi"
         control = self.device_cfg["commands"]["control"]
         values = control["values"]
 
@@ -590,6 +688,22 @@ class InvtGd20Device(BaseDevice):
                 print("GD20 RUN blocked by external stop")
                 self._command_ts = row[1]
                 return
+            # Servisný beh obchádza alarm aj teploty. S4 ostáva, menič ho zastaví sám.
+            service_run = source == RUN_SOURCE and self._service_session_open(db_conn)
+            if not service_run:
+                if run_blocked:
+                    print("GD20 RUN blocked by alarm")
+                    self._command_ts = row[1]
+                    return
+                try:
+                    temperatures_ready = start_allowed(db_conn, load_config())
+                except Exception as e:
+                    print("GD20 start check:", e)
+                    temperatures_ready = False
+                if not temperatures_ready:
+                    print("GD20 RUN blocked by temperatures")
+                    self._command_ts = row[1]
+                    return
             raw = int(values["run_forward"])
             label = "RUN"
         elif value == "0":
@@ -721,7 +835,29 @@ class InvtGd20Device(BaseDevice):
         except Exception as e:
             print("GD20 offline write error:", e)
 
-    def _upsert_state(self, db_conn, values):
+    def _previous_run(self, db_conn):
+
+        try:
+            with db_conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT running, run_accounted_ts
+                    FROM invt_gd20_state
+                    WHERE device_id = %s
+                    """,
+                    (self.slave_id,),
+                )
+                row = cur.fetchone()
+        except Exception as e:
+            print("GD20 run hours read error:", e)
+            return False
+
+        if not row:
+            return None
+
+        return row[0], row[1]
+
+    def _upsert_state(self, db_conn, values, now=None):
 
         columns = [
             "device_id",
@@ -763,8 +899,26 @@ class InvtGd20Device(BaseDevice):
         if values["status_read_ok"]:
             columns.extend(("status_code", "running"))
             params.extend((values["status_code"], values["running"]))
+            previous = self._previous_run(db_conn)
+            if previous is not False:
+                previous_running, previous_ts = (None, None) if previous is None else previous
+                added, account = gd20_run_account(
+                    previous_running,
+                    previous_ts,
+                    values["running"],
+                    now,
+                )
+                if account:
+                    columns.extend(("run_seconds", "run_accounted_ts"))
+                    params.extend((added, now))
 
-        assignments = ", ".join(f"{column} = VALUES({column})" for column in columns if column != "device_id")
+        assignments = ", ".join(
+            "run_seconds = run_seconds + VALUES(run_seconds)"
+            if column == "run_seconds"
+            else f"{column} = VALUES({column})"
+            for column in columns
+            if column != "device_id"
+        )
         placeholders = ", ".join(["%s"] * len(columns))
 
         sql = f"""

@@ -1,5 +1,10 @@
 ck_3083es_8ch:
   alias: "CK-3083ES_8CH"
+  # Menič sa smie spustiť, až keď t_gen_in aj t_cond_in držia limit súvisle hold_s.
+  # Kondenzátor nad stropom zastaví bežiaci menič až po stop_hold_s.
+  start:
+    hold_s: 120
+    stop_hold_s: 15
 
 modbus:
   slaves:
@@ -24,9 +29,9 @@ channels:
   # --- Teploty ---
   t1: { name: "t_evap_in", unit: "°C" }
   t2: { name: "t_gen_out", unit: "°C" }
-  t3: { name: "t_gen_in", unit: "°C" }
+  t3: { name: "t_gen_in", unit: "°C", ready_min: 75 }
   t4: { name: "t_control", unit: "°C" }
   t5: { name: "t_cond_out", unit: "°C" }
-  t6: { name: "t_cond_in", unit: "°C" }
+  t6: { name: "t_cond_in", unit: "°C", ready_max: 28 }
   t7: { name: "t_evap_out", unit: "°C" }
   t8: { name: "NA", unit: "°C" }

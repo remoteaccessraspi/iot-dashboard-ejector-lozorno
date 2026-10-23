@@ -1,7 +1,10 @@
 import time
 from datetime import datetime
 
+from iot_core.alarms.book import AlarmBook, SqlRepo
 from iot_core.core.config import load_config
+from iot_core.hmi.session import idle_seconds
+from iot_core.mail.alarm_mail import schedule_alarm_mail
 from iot_core.db.connection import get_connection
 from iot_core.modbus.client import wait_for_client
 
@@ -14,6 +17,54 @@ from iot_core.devices.em2rs_556 import Em2rs556Device, attach_boot
 # --------------------------------------------------
 # CONNECTION HELPERS
 # --------------------------------------------------
+
+# Výpadok týchto dvoch zakáže štart meniča: bez INVT sa nedá zastaviť,
+# bez prúdovej slučky nie je vidno p_gen_prim.
+_LINK = {
+    "CK-3083ES_8CH": ("ck_3083es", False),
+    "CK-7082E_8CH": ("ck_7082e", True),
+    "INVT GD20": ("invt_gd20", True),
+    "EM2RS-556": ("em2rs_556", False),
+}
+
+
+def alarm_book(cfg):
+
+    alarms = cfg.get("alarms") or {}
+    channels = alarms.get("loop_channels") or (6, 7, 8)
+
+    return AlarmBook(
+        SqlRepo(),
+        comm_fails=int(alarms.get("comm_fail_cycles", 3)),
+        loop_low=float(alarms.get("loop_low_ma", 3.5)),
+        loop_high=float(alarms.get("loop_high_ma", 21.0)),
+        channels=tuple(int(channel) for channel in channels),
+        loop_max_age_s=float(alarms.get("loop_max_age_s", 10)),
+        cavitation=(cfg.get("invt_gd20") or {}).get("cavitation"),
+        notifier=schedule_alarm_mail,
+        temperature={
+            "enabled": True,
+            "stop_hold_s": ((cfg.get("ck_3083es_8ch") or {}).get("start") or {}).get("stop_hold_s", 15),
+            "channels": cfg.get("channels") or {},
+        },
+        service_idle_s=idle_seconds((cfg.get("hmi") or {}).get("service_idle_min", 30)),
+    )
+
+
+def note_link(book, db_conn, device, ok, ts):
+
+    spec = _LINK.get(getattr(device, "model", None))
+
+    if spec is None:
+        return
+
+    source, inhibit = spec
+
+    try:
+        book.note_link(db_conn, source, device.slave_id, ok, inhibit, ts)
+    except Exception as e:
+        print("alarm link:", e)
+
 
 def reconnect_client(client):
 
@@ -135,6 +186,8 @@ def main():
 
     print("Poll period:", PERIOD, "s")
 
+    book = alarm_book(cfg)
+
     for device in devices:
 
         if isinstance(device, InvtGd20Device):
@@ -193,22 +246,32 @@ def main():
 
                 print(f"Polling {name}")
 
-                device.execute(client, db_conn, ts)
+                ok = device.execute(client, db_conn, ts) is True
+                note_link(book, db_conn, device, ok, ts)
 
                 latency = (time.monotonic() - start) * 1000
 
-                print(f"{name} OK {latency:.1f} ms")
+                if ok:
+                    print(f"{name} OK {latency:.1f} ms")
+                else:
+                    print(f"{name} FAIL {latency:.1f} ms")
 
             except Exception as e:
 
                 latency = (time.monotonic() - start) * 1000
 
                 print(f"{name} ERROR {latency:.1f} ms -> {e}")
+                note_link(book, db_conn, device, False, ts)
 
                 reconnect_client(client)
 
             # RTU frame spacing
             time.sleep(FRAME_DELAY)
+
+        try:
+            book.observe(db_conn, ts)
+        except Exception as e:
+            print("alarm observe:", e)
 
         # -------------------------------
         # STABLE CYCLE TIMING

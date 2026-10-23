@@ -1,3 +1,4 @@
+import copy
 import os
 from pathlib import Path
 
@@ -25,6 +26,24 @@ def _secret_database():
 
     secrets = yaml.safe_load(SECRETS_PATH.read_text(encoding="utf-8")) or {}
     return secrets.get("database") or {}
+
+
+def load_hmi_secrets():
+
+    if not SECRETS_PATH.exists():
+        return {}
+
+    secrets = yaml.safe_load(SECRETS_PATH.read_text(encoding="utf-8")) or {}
+
+    if not isinstance(secrets, dict):
+        return {}
+
+    hmi = secrets.get("hmi")
+
+    if not isinstance(hmi, dict):
+        return {}
+
+    return hmi
 
 
 def _apply_env(database, keys):
@@ -106,7 +125,7 @@ def merge_includes(includes):
     return merged
 
 
-def load_settings():
+def _read_settings():
 
     root = _load_yaml(SETTINGS_PATH)
     includes = root.get("include")
@@ -123,6 +142,20 @@ def load_settings():
         )
 
     return merge_includes(includes)
+
+
+_settings = None
+
+
+def load_settings():
+
+    # Veľké YAML zariadení sa čítajú raz. Zmena súboru vyžaduje reštart.
+    global _settings
+
+    if _settings is None:
+        _settings = _read_settings()
+
+    return copy.deepcopy(_settings)
 
 
 def load_config():

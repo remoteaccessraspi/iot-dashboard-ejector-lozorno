@@ -1,7 +1,22 @@
+{% set service = service_active(request) %}
+{% set idle_min = service_idle_min() %}
 <div class="nav">
+  <a href="/" {% if request.url.path == '/' %}class="active"{% endif %}>Main</a>
+  {% if service %}
   <a href="/ck-3083es" {% if request.url.path == '/ck-3083es' %}class="active"{% endif %}>{{ card_alias("ck_3083es_8ch") }}</a>
   <a href="/ck-7082e" {% if request.url.path == '/ck-7082e' %}class="active"{% endif %}>{{ card_alias("ck_7082e_8ch") }}</a>
   <a href="/gd20" {% if request.url.path == '/gd20' %}class="active"{% endif %}>{{ card_alias("invt_gd20") }}</a>
   <a href="/em2rs" {% if request.url.path == '/em2rs' %}class="active"{% endif %}>{{ card_alias("em2rs_556") }}</a>
+  {% endif %}
   <a href="/graph" {% if request.url.path == '/graph' %}class="active"{% endif %}>Graph</a>
+  {% if service %}
+  <button type="button" id="serviceClose" class="btn-service">Close service</button>
+  {% endif %}
 </div>
+<div id="alarmBar" class="alarm-bar" data-show-ack="{{ 1 if service else 0 }}" hidden></div>
+<script>
+window.HMI_SERVICE = {{ 1 if service else 0 }};
+window.HMI_IDLE_MIN = {{ idle_min }};
+</script>
+<script src="{{ request.url_for('static', path='js/alarms.js') }}?v=warn-bottom"></script>
+<script src="{{ request.url_for('static', path='js/hmi.js') }}?v=hmi-home"></script>

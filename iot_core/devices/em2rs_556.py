@@ -281,6 +281,8 @@ def _read_holding(client, address, count, slave_id):
 
 class Em2rs556Device(BaseDevice):
 
+    model = "EM2RS-556"
+
     def __init__(self, slave_id, device_cfg):
 
         super().__init__(slave_id)
@@ -338,12 +340,12 @@ class Em2rs556Device(BaseDevice):
         except Exception as e:
             print("EM2RS Modbus call failed:", e)
             self._set_offline(db_conn)
-            return
+            return False
 
         if snapshot is None:
             print("EM2RS OFFLINE")
             self._set_offline(db_conn)
-            return
+            return False
 
         items = self._check_items(snapshot)
         status = overall_status(items)
@@ -377,6 +379,9 @@ class Em2rs556Device(BaseDevice):
             self._upsert_state(db_conn, snapshot, status, ts)
         except Exception as e:
             print("EM2RS DB error:", e)
+            return False
+
+        return True
 
     def apply_setup(self, client, frame_delay_s=0.03):
 

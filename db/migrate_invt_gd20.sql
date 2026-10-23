@@ -8,6 +8,8 @@ CREATE TABLE IF NOT EXISTS invt_gd20_state (
 
     online TINYINT NOT NULL DEFAULT 0,
     running TINYINT NOT NULL DEFAULT 0,
+    run_seconds BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Seconds the drive status was RUN',
+    run_accounted_ts DATETIME NULL COMMENT 'Last poll included in run_seconds',
     status_code INT DEFAULT NULL COMMENT 'Raw Goodrive status word 0x2100: 1 forward run, 2 reverse run, 3 stop, 4 fault, 5 POFF, 6 pre-exciting',
     fault_code INT DEFAULT NULL,
     external_stop TINYINT DEFAULT NULL COMMENT '1 when S4 coast-to-stop is active',
@@ -106,6 +108,16 @@ ALTER TABLE invt_gd20
     ADD COLUMN IF NOT EXISTS status_code INT DEFAULT NULL
         COMMENT 'Raw Goodrive status word 0x2100: 1 forward run, 2 reverse run, 3 stop, 4 fault, 5 POFF, 6 pre-exciting'
         AFTER running;
+
+ALTER TABLE invt_gd20_state
+    ADD COLUMN IF NOT EXISTS run_seconds BIGINT UNSIGNED NOT NULL DEFAULT 0
+        COMMENT 'Seconds the drive status was RUN'
+        AFTER running;
+
+ALTER TABLE invt_gd20_state
+    ADD COLUMN IF NOT EXISTS run_accounted_ts DATETIME NULL
+        COMMENT 'Last poll included in run_seconds'
+        AFTER run_seconds;
 
 ALTER TABLE invt_gd20_state
     DROP COLUMN IF EXISTS ai2_value;

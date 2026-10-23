@@ -37,6 +37,15 @@ invt_gd20:
   stability:
     max_age_s: 10
 
+  # Kavitácia. Dohľad sa zapne, až keď bežiaci menič dosiahne min_kpa.
+  # Potom p_gen_prim_from_frq (AI2) klesne pod prah a frekvencia je na strope
+  # po dobu confirm_s: alarm a STOP. Štart znova až po Ack.
+  cavitation:
+    enabled: true
+    min_kpa: 750
+    confirm_s: 30
+    frequency_limit_hz: 50
+
   # Raz pri štarte mastera, teda aj po reboote Raspberry.
   # Zapíše sa len required_value, ktoré sa od meniča líši.
   # P00.01 a P05.04 menič prijme len keď stojí. Bežiaci motor sa kvôli setupu nezastavuje;

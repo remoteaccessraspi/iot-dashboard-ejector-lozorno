@@ -27,6 +27,7 @@ HISTORY_TABLES = (
     "control",
     "system",
     "fault_log",
+    "alarm_event",
 )
 
 STATE_TABLES = (
@@ -35,6 +36,8 @@ STATE_TABLES = (
     "invt_gd20_state",
     "em2rs_556_state",
     "system_info",
+    "alarm_state",
+    "device_link",
 )
 
 PURGE_KEY = "__purge_archive"
@@ -205,12 +208,13 @@ def copy_history(hot, archive, table, batch_rows):
         if not rows:
             break
 
+        mutable = table in ("fault_log", "alarm_event")
         write_rows(
             archive,
             table,
             rows,
-            upsert=(table == "fault_log"),
-            ignore_duplicates=(table != "fault_log"),
+            upsert=mutable,
+            ignore_duplicates=not mutable,
         )
         last_id = int(rows[-1]["id"])
         copied += len(rows)
@@ -228,6 +232,17 @@ def copy_history(hot, archive, table, batch_rows):
 
         if active:
             write_rows(archive, table, active, upsert=True)
+
+    if table == "alarm_event":
+        with hot.cursor() as cur:
+            cur.execute(
+                f"SELECT * FROM {ident(table)} WHERE id <= %s",
+                (last_id,),
+            )
+            changed = cur.fetchall()
+
+        if changed:
+            write_rows(archive, table, changed, upsert=True)
 
     if last_id != start_id:
         save_watermark(archive, table, last_id)
@@ -255,6 +270,18 @@ def purge_hot(hot, hours, watermarks):
 
     with hot.cursor() as cur:
         for table, last_id in watermarks.items():
+            if table == "alarm_event":
+                cur.execute(
+                    """
+                    DELETE FROM alarm_event
+                    WHERE ts < (NOW() - INTERVAL %s HOUR)
+                      AND id <= %s
+                      AND cleared_ts IS NOT NULL
+                    """,
+                    (int(hours), last_id),
+                )
+                continue
+
             cur.execute(
                 f"""
                 DELETE FROM {ident(table)}
@@ -438,7 +465,12 @@ def backfill_hot(cfg):
         copied = {}
 
         for table in HISTORY_TABLES:
-            or_sql = "active = 1" if table == "fault_log" else None
+            if table == "fault_log":
+                or_sql = "active = 1"
+            elif table == "alarm_event":
+                or_sql = "cleared_ts IS NULL"
+            else:
+                or_sql = None
             copied[table] = copy_window(
                 archive, hot, table, hours, batch_rows, or_sql
             )

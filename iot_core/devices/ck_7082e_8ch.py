@@ -86,17 +86,17 @@ class Ck7082e8chDevice(BaseDevice):
 
         if not rr or (hasattr(rr, "isError") and rr.isError()):
             print(f"{self.model} read error:", rr)
-            return
+            return False
 
         if not hasattr(rr, "registers"):
             print(f"{self.model} invalid response:", rr)
-            return
+            return False
 
         expected = int(self.reg_cfg["count"])
 
         if len(rr.registers) != expected:
             print(f"{self.model} wrong register count:", len(rr.registers), "expected", expected)
-            return
+            return False
 
         regs = list(rr.registers)
 
@@ -163,3 +163,6 @@ class Ck7082e8chDevice(BaseDevice):
                 db_conn.rollback()
             except Exception:
                 pass
+            return False
+
+        return True

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Zapne dávkový sync RAM -> SD. Master aj HMI ostávajú na porte 3306.
+# Zapne dávkový sync RAM (3307) -> SD (3306). Master aj HMI ostávajú na porte 3307.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

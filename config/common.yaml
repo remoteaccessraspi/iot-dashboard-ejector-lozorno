@@ -46,3 +46,14 @@ features:
 
 hmi:
   refresh_ms: 2000
+  # Po tejto nečinnosti sa servis vráti na hlavnú kartu.
+  service_idle_min: 30
+
+# Alarm po troch poll cykloch bez odpovede. Slučka mimo 3.5–21 mA
+# je warning, kým menič stojí, a alarm, kým beží.
+alarms:
+  comm_fail_cycles: 3
+  loop_low_ma: 3.5
+  loop_high_ma: 21.0
+  loop_channels: [6, 7, 8]
+  loop_max_age_s: 10

@@ -51,19 +51,19 @@ class Ck3083es8chDevice(BaseDevice):
             )
         except Exception as e:
             print(f"{self.model} Modbus call failed:", e)
-            return
+            return False
 
         if not rr or (hasattr(rr, "isError") and rr.isError()):
             print(f"{self.model} read error:", rr)
-            return
+            return False
 
         if not hasattr(rr, "registers"):
             print(f"{self.model} invalid response:", rr)
-            return
+            return False
 
         if len(rr.registers) != self.reg_cfg["count"]:
             print(f"{self.model} wrong register count:", rr.registers)
-            return
+            return False
 
         regs = rr.registers
 
@@ -102,4 +102,6 @@ class Ck3083es8chDevice(BaseDevice):
         except Exception as e:
 
             print(f"{self.model} DB error:", e)
-            return
+            return False
+
+        return True

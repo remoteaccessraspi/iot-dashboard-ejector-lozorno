@@ -1,5 +1,6 @@
 import unittest
-from datetime import datetime
+from datetime import datetime, timedelta
+from unittest.mock import patch
 
 from app import gd20_row_visible
 from iot_core.core.config import load_config
@@ -7,10 +8,51 @@ from iot_core.devices.invt_gd20 import (
     InvtGd20Device,
     external_stop_active,
     gd20_is_running,
+    gd20_run_account,
+    gd20_run_hours,
     gd20_setup_items,
     gd20_stability,
     kpa_to_pid_raw,
 )
+
+
+class Gd20RunHoursTest(unittest.TestCase):
+
+    def test_both_on_adds_the_gap_and_a_long_gap_is_capped(self):
+
+        start = datetime(2026, 10, 22, 20, 0, 0)
+
+        added, account = gd20_run_account(1, start, 1, start + timedelta(seconds=5))
+        self.assertTrue(account)
+        self.assertEqual(added, 5)
+
+        added, account = gd20_run_account(1, start, 1, start + timedelta(seconds=40))
+        self.assertTrue(account)
+        self.assertEqual(added, 10)
+
+    def test_stop_or_unknown_status_does_not_add_time(self):
+
+        start = datetime(2026, 10, 22, 20, 0, 0)
+        now = start + timedelta(seconds=5)
+
+        added, account = gd20_run_account(1, start, 0, now)
+        self.assertEqual((added, account), (0, True))
+
+        added, account = gd20_run_account(1, start, None, now)
+        self.assertEqual((added, account), (0, False))
+
+        added, account = gd20_run_account(None, None, 1, now)
+        self.assertEqual((added, account), (0, True))
+
+        added, account = gd20_run_account(1, now, 1, start)
+        self.assertEqual((added, account), (0, True))
+
+    def test_hours_use_one_decimal(self):
+
+        self.assertEqual(gd20_run_hours(0), 0.0)
+        self.assertEqual(gd20_run_hours(360), 0.1)
+        self.assertEqual(gd20_run_hours(3600), 1.0)
+        self.assertIsNone(gd20_run_hours(None))
 
 
 class Gd20StabilityTest(unittest.TestCase):
@@ -156,9 +198,47 @@ class Gd20ExternalStopTest(unittest.TestCase):
         client = _Client()
         conn = _Conn(("1", datetime(2026, 10, 14, 11, 1, 0)))
 
-        self.device._apply_pending_command(client, conn, external_stop=False)
+        with patch("iot_core.devices.invt_gd20.start_allowed", return_value=True):
+            self.device._apply_pending_command(client, conn, external_stop=False)
 
         self.assertEqual(client.writes, [(0x2000, 0x0001, 100)])
+
+    def test_service_run_skips_the_alarm_and_temperature_gates(self):
+
+        client = _Client()
+        conn = _Conn(("1", datetime(2026, 10, 14, 11, 3, 0), "service"))
+
+        with patch.object(self.device, "_service_session_open", return_value=True), \
+             patch("iot_core.devices.invt_gd20.start_allowed", return_value=False):
+            self.device._apply_pending_command(
+                client,
+                conn,
+                external_stop=False,
+                run_blocked=True,
+            )
+
+        self.assertEqual(client.writes, [(0x2000, 0x0001, 100)])
+
+    def test_ended_service_session_uses_the_temperature_gate(self):
+
+        client = _Client()
+        conn = _Conn(("1", datetime(2026, 10, 14, 11, 4, 0), "service"))
+
+        with patch.object(self.device, "_service_session_open", return_value=False), \
+             patch("iot_core.devices.invt_gd20.start_allowed", return_value=False):
+            self.device._apply_pending_command(client, conn, external_stop=False)
+
+        self.assertEqual(client.writes, [])
+
+    def test_service_run_stays_blocked_while_the_switch_is_open(self):
+
+        client = _Client()
+        conn = _Conn(("1", datetime(2026, 10, 14, 11, 5, 0), "service"))
+
+        with patch.object(self.device, "_service_session_open", return_value=True):
+            self.device._apply_pending_command(client, conn, external_stop=True)
+
+        self.assertEqual(client.writes, [])
 
     def test_stop_is_written_while_the_switch_is_open(self):
 

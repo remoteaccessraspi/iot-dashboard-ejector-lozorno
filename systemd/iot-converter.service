@@ -1,7 +1,7 @@
 [Unit]
 Description=IoT Current Loop Converter (ejector-lozorno)
-After=network.target mariadb.service
-Wants=mariadb.service
+After=network.target mariadb-hot.service
+Wants=mariadb-hot.service
 
 [Service]
 Type=simple

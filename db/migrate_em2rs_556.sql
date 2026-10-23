@@ -1,5 +1,5 @@
 -- Idempotentná migrácia EM2RS-556 pre databázu ejector.
--- Vytvorí iba em2rs_556_state.
+-- Vytvorí em2rs_556_state a históriu em2rs_556.
 -- Nemení a nemaže existujúce tabuľky ani ich dáta.
 
 CREATE TABLE IF NOT EXISTS em2rs_556_state (

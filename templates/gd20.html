@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <title>IOT HMI - {{ card_alias("invt_gd20") }}</title>
-  <link rel="stylesheet" href="{{ request.url_for('static', path='css/style.css') }}?v=ext-stop">
+  <link rel="stylesheet" href="{{ request.url_for('static', path='css/style.css') }}?v=service-run-label">
 </head>
 <body>
 
@@ -28,12 +28,13 @@
       <div class="actions gd20-actions">
         <input id="gd20Setpoint" type="number" min="{{ setpoint_min }}" max="{{ setpoint_max }}" step="0.1" inputmode="decimal" aria-label="Setpoint kPa" placeholder="Setpoint kPa">
         <button id="gd20Set" type="button">SET</button>
-        <button id="gd20Run" class="btn-run" type="button">RUN</button>
+        <button id="gd20Run" class="btn-run" type="button">RUN in service mode</button>
         <button id="gd20Stop" class="btn-stop" type="button">STOP</button>
       </div>
     </div>
     <table id="gd20Table"></table>
     <div class="small" id="gd20Cmd"></div>
+    <div id="warnBar" class="alarm-bar" hidden></div>
   </div>
 
 </div>
@@ -44,7 +45,7 @@ const GD20_SETPOINT_MIN = {{ setpoint_min }};
 const GD20_SETPOINT_MAX = {{ setpoint_max }};
 </script>
 
-<script src="{{ request.url_for('static', path='js/main.js') }}?v=ext-stop"></script>
+<script src="{{ request.url_for('static', path='js/main.js') }}?v=service-run-label"></script>
 
 </body>
 </html>

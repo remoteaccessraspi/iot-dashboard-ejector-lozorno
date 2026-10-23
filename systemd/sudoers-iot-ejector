@@ -1,0 +1,163 @@
+# Heslo sa nepýta len pri obsluhe služieb ejectora.
+# Iný sudo príkaz heslo naďalej vyžaduje. Shell ani cudzie unity tu nie sú.
+pi ALL=(root) NOPASSWD: /usr/bin/systemctl daemon-reload, \
+    /usr/bin/systemctl start iot-dashboard, \
+    /usr/bin/systemctl stop iot-dashboard, \
+    /usr/bin/systemctl restart iot-dashboard, \
+    /usr/bin/systemctl status iot-dashboard, \
+    /usr/bin/systemctl is-active iot-dashboard, \
+    /usr/bin/systemctl is-enabled iot-dashboard, \
+    /usr/bin/systemctl reset-failed iot-dashboard, \
+    /usr/bin/systemctl cat iot-dashboard, \
+    /usr/bin/journalctl -u iot-dashboard, \
+    /usr/bin/journalctl -u iot-dashboard *, \
+    /usr/bin/systemctl start iot-dashboard.service, \
+    /usr/bin/systemctl stop iot-dashboard.service, \
+    /usr/bin/systemctl restart iot-dashboard.service, \
+    /usr/bin/systemctl status iot-dashboard.service, \
+    /usr/bin/systemctl is-active iot-dashboard.service, \
+    /usr/bin/systemctl is-enabled iot-dashboard.service, \
+    /usr/bin/systemctl reset-failed iot-dashboard.service, \
+    /usr/bin/systemctl cat iot-dashboard.service, \
+    /usr/bin/journalctl -u iot-dashboard.service, \
+    /usr/bin/journalctl -u iot-dashboard.service *, \
+    /usr/bin/systemctl start iot-master, \
+    /usr/bin/systemctl stop iot-master, \
+    /usr/bin/systemctl restart iot-master, \
+    /usr/bin/systemctl status iot-master, \
+    /usr/bin/systemctl is-active iot-master, \
+    /usr/bin/systemctl is-enabled iot-master, \
+    /usr/bin/systemctl reset-failed iot-master, \
+    /usr/bin/systemctl cat iot-master, \
+    /usr/bin/journalctl -u iot-master, \
+    /usr/bin/journalctl -u iot-master *, \
+    /usr/bin/systemctl start iot-master.service, \
+    /usr/bin/systemctl stop iot-master.service, \
+    /usr/bin/systemctl restart iot-master.service, \
+    /usr/bin/systemctl status iot-master.service, \
+    /usr/bin/systemctl is-active iot-master.service, \
+    /usr/bin/systemctl is-enabled iot-master.service, \
+    /usr/bin/systemctl reset-failed iot-master.service, \
+    /usr/bin/systemctl cat iot-master.service, \
+    /usr/bin/journalctl -u iot-master.service, \
+    /usr/bin/journalctl -u iot-master.service *, \
+    /usr/bin/systemctl start iot-converter, \
+    /usr/bin/systemctl stop iot-converter, \
+    /usr/bin/systemctl restart iot-converter, \
+    /usr/bin/systemctl status iot-converter, \
+    /usr/bin/systemctl is-active iot-converter, \
+    /usr/bin/systemctl is-enabled iot-converter, \
+    /usr/bin/systemctl reset-failed iot-converter, \
+    /usr/bin/systemctl cat iot-converter, \
+    /usr/bin/journalctl -u iot-converter, \
+    /usr/bin/journalctl -u iot-converter *, \
+    /usr/bin/systemctl start iot-converter.service, \
+    /usr/bin/systemctl stop iot-converter.service, \
+    /usr/bin/systemctl restart iot-converter.service, \
+    /usr/bin/systemctl status iot-converter.service, \
+    /usr/bin/systemctl is-active iot-converter.service, \
+    /usr/bin/systemctl is-enabled iot-converter.service, \
+    /usr/bin/systemctl reset-failed iot-converter.service, \
+    /usr/bin/systemctl cat iot-converter.service, \
+    /usr/bin/journalctl -u iot-converter.service, \
+    /usr/bin/journalctl -u iot-converter.service *, \
+    /usr/bin/systemctl start iot-db-archive, \
+    /usr/bin/systemctl stop iot-db-archive, \
+    /usr/bin/systemctl restart iot-db-archive, \
+    /usr/bin/systemctl status iot-db-archive, \
+    /usr/bin/systemctl is-active iot-db-archive, \
+    /usr/bin/systemctl is-enabled iot-db-archive, \
+    /usr/bin/systemctl reset-failed iot-db-archive, \
+    /usr/bin/systemctl cat iot-db-archive, \
+    /usr/bin/journalctl -u iot-db-archive, \
+    /usr/bin/journalctl -u iot-db-archive *, \
+    /usr/bin/systemctl start iot-db-archive.service, \
+    /usr/bin/systemctl stop iot-db-archive.service, \
+    /usr/bin/systemctl restart iot-db-archive.service, \
+    /usr/bin/systemctl status iot-db-archive.service, \
+    /usr/bin/systemctl is-active iot-db-archive.service, \
+    /usr/bin/systemctl is-enabled iot-db-archive.service, \
+    /usr/bin/systemctl reset-failed iot-db-archive.service, \
+    /usr/bin/systemctl cat iot-db-archive.service, \
+    /usr/bin/journalctl -u iot-db-archive.service, \
+    /usr/bin/journalctl -u iot-db-archive.service *, \
+    /usr/bin/systemctl start iot-db-warm, \
+    /usr/bin/systemctl stop iot-db-warm, \
+    /usr/bin/systemctl restart iot-db-warm, \
+    /usr/bin/systemctl status iot-db-warm, \
+    /usr/bin/systemctl is-active iot-db-warm, \
+    /usr/bin/systemctl is-enabled iot-db-warm, \
+    /usr/bin/systemctl reset-failed iot-db-warm, \
+    /usr/bin/systemctl cat iot-db-warm, \
+    /usr/bin/journalctl -u iot-db-warm, \
+    /usr/bin/journalctl -u iot-db-warm *, \
+    /usr/bin/systemctl start iot-db-warm.service, \
+    /usr/bin/systemctl stop iot-db-warm.service, \
+    /usr/bin/systemctl restart iot-db-warm.service, \
+    /usr/bin/systemctl status iot-db-warm.service, \
+    /usr/bin/systemctl is-active iot-db-warm.service, \
+    /usr/bin/systemctl is-enabled iot-db-warm.service, \
+    /usr/bin/systemctl reset-failed iot-db-warm.service, \
+    /usr/bin/systemctl cat iot-db-warm.service, \
+    /usr/bin/journalctl -u iot-db-warm.service, \
+    /usr/bin/journalctl -u iot-db-warm.service *, \
+    /usr/bin/systemctl start iot-kiosk-watchdog, \
+    /usr/bin/systemctl stop iot-kiosk-watchdog, \
+    /usr/bin/systemctl restart iot-kiosk-watchdog, \
+    /usr/bin/systemctl status iot-kiosk-watchdog, \
+    /usr/bin/systemctl is-active iot-kiosk-watchdog, \
+    /usr/bin/systemctl is-enabled iot-kiosk-watchdog, \
+    /usr/bin/systemctl reset-failed iot-kiosk-watchdog, \
+    /usr/bin/systemctl cat iot-kiosk-watchdog, \
+    /usr/bin/journalctl -u iot-kiosk-watchdog, \
+    /usr/bin/journalctl -u iot-kiosk-watchdog *, \
+    /usr/bin/systemctl start iot-kiosk-watchdog.service, \
+    /usr/bin/systemctl stop iot-kiosk-watchdog.service, \
+    /usr/bin/systemctl restart iot-kiosk-watchdog.service, \
+    /usr/bin/systemctl status iot-kiosk-watchdog.service, \
+    /usr/bin/systemctl is-active iot-kiosk-watchdog.service, \
+    /usr/bin/systemctl is-enabled iot-kiosk-watchdog.service, \
+    /usr/bin/systemctl reset-failed iot-kiosk-watchdog.service, \
+    /usr/bin/systemctl cat iot-kiosk-watchdog.service, \
+    /usr/bin/journalctl -u iot-kiosk-watchdog.service, \
+    /usr/bin/journalctl -u iot-kiosk-watchdog.service *, \
+    /usr/bin/systemctl start mariadb-hot, \
+    /usr/bin/systemctl stop mariadb-hot, \
+    /usr/bin/systemctl restart mariadb-hot, \
+    /usr/bin/systemctl status mariadb-hot, \
+    /usr/bin/systemctl is-active mariadb-hot, \
+    /usr/bin/systemctl is-enabled mariadb-hot, \
+    /usr/bin/systemctl reset-failed mariadb-hot, \
+    /usr/bin/systemctl cat mariadb-hot, \
+    /usr/bin/journalctl -u mariadb-hot, \
+    /usr/bin/journalctl -u mariadb-hot *, \
+    /usr/bin/systemctl start mariadb-hot.service, \
+    /usr/bin/systemctl stop mariadb-hot.service, \
+    /usr/bin/systemctl restart mariadb-hot.service, \
+    /usr/bin/systemctl status mariadb-hot.service, \
+    /usr/bin/systemctl is-active mariadb-hot.service, \
+    /usr/bin/systemctl is-enabled mariadb-hot.service, \
+    /usr/bin/systemctl reset-failed mariadb-hot.service, \
+    /usr/bin/systemctl cat mariadb-hot.service, \
+    /usr/bin/journalctl -u mariadb-hot.service, \
+    /usr/bin/journalctl -u mariadb-hot.service *, \
+    /usr/bin/systemctl start mariadb, \
+    /usr/bin/systemctl stop mariadb, \
+    /usr/bin/systemctl restart mariadb, \
+    /usr/bin/systemctl status mariadb, \
+    /usr/bin/systemctl is-active mariadb, \
+    /usr/bin/systemctl is-enabled mariadb, \
+    /usr/bin/systemctl reset-failed mariadb, \
+    /usr/bin/systemctl cat mariadb, \
+    /usr/bin/journalctl -u mariadb, \
+    /usr/bin/journalctl -u mariadb *, \
+    /usr/bin/systemctl start mariadb.service, \
+    /usr/bin/systemctl stop mariadb.service, \
+    /usr/bin/systemctl restart mariadb.service, \
+    /usr/bin/systemctl status mariadb.service, \
+    /usr/bin/systemctl is-active mariadb.service, \
+    /usr/bin/systemctl is-enabled mariadb.service, \
+    /usr/bin/systemctl reset-failed mariadb.service, \
+    /usr/bin/systemctl cat mariadb.service, \
+    /usr/bin/journalctl -u mariadb.service, \
+    /usr/bin/journalctl -u mariadb.service *

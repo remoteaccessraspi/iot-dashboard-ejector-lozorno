@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <title>IOT HMI - {{ card_alias("em2rs_556") }}</title>
-  <link rel="stylesheet" href="{{ request.url_for('static', path='css/style.css') }}?v=em2rs-park-stop">
+  <link rel="stylesheet" href="{{ request.url_for('static', path='css/style.css') }}?v=warn-bottom">
 </head>
 <body>
 
@@ -47,6 +47,7 @@
     </div>
     <table id="em2rsTable"></table>
     <div class="small" id="em2rsNote"></div>
+    <div id="warnBar" class="alarm-bar" hidden></div>
   </div>
 
 </div>

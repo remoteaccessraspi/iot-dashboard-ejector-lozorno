@@ -1,0 +1,68 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>IOT HMI</title>
+  <link rel="stylesheet" href="{{ request.url_for('static', path='css/style.css') }}?v=service-run-label">
+</head>
+<body>
+
+{% include "header.html" %}
+
+<div class="meta">
+  Auto refresh: <span id="refreshMs"></span> ms |
+  Last update: <span id="lastUpdate">-</span> |
+  DB: <span id="dbStatus" class="pill bad">?</span> |
+  Last DB write: <span id="tLastDb">-</span>
+</div>
+
+<div class="row">
+
+  <div class="card home-card">
+    <div class="home-values">
+      <div class="home-metric">
+        <div class="home-label" id="evapInLabel">t_evap_in</div>
+        <div class="home-reading" id="evapInValue">-</div>
+      </div>
+      <div class="home-metric">
+        <div class="home-label" id="evapOutLabel">t_evap_out</div>
+        <div class="home-reading" id="evapOutValue">-</div>
+      </div>
+    </div>
+
+    <div id="homeStatus" class="status-row"></div>
+
+    <div class="home-controls">
+      <div class="actions home-actions{% if service_active(request) %} home-actions-service{% endif %}">
+        <button id="homeDrive" class="btn-run" type="button">RUN</button>
+        {% if not service_active(request) %}
+        <button id="serviceOpen" class="btn-service" type="button">Service</button>
+        {% endif %}
+      </div>
+      {% if not service_active(request) %}
+      <form id="serviceForm" class="service-pop" hidden>
+        <div class="service-pop-field">
+          <label for="servicePassword">password</label>
+          <input id="servicePassword" type="text" autocomplete="off" spellcheck="false" autocapitalize="off">
+        </div>
+        <div class="actions service-pop-actions">
+          <button id="serviceSubmit" type="submit">Open</button>
+          <button id="serviceCancel" class="btn-service" type="button">Cancel</button>
+        </div>
+      </form>
+      {% endif %}
+    </div>
+    <div class="small" id="homeCmd"></div>
+    <div class="small" id="serviceError"></div>
+    <div id="warnBar" class="alarm-bar" hidden></div>
+  </div>
+
+</div>
+
+<script>
+const REFRESH_MS = {{ refresh_ms }};
+</script>
+<script src="{{ request.url_for('static', path='js/home.js') }}?v=service-run-label"></script>
+
+</body>
+</html>

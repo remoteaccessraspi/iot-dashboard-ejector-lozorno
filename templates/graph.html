@@ -6,7 +6,7 @@
 <meta charset="utf-8">
 <title>IOT HMI - Graph</title>
 
-<link rel="stylesheet" href="{{ request.url_for('static', path='css/style.css') }}">
+<link rel="stylesheet" href="{{ request.url_for('static', path='css/style.css') }}?v=hmi-close-btn">
 
 <!-- Chart.js -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1"></script>
@@ -72,8 +72,6 @@
 <body>
 
 {% include "header.html" %}
-
-<div class="title">Graph</div>
 
 <div class="row">
 

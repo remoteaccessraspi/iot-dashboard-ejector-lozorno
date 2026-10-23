@@ -198,6 +198,7 @@ async function tick(){
   try{
 
     const data=await fetchJSON("/api/latest");
+    window.gd20StartReady = data.ready === true;
 
     // meta
     const lastUpdate=document.getElementById("lastUpdate");
@@ -357,11 +358,11 @@ function renderGd20(gd20, serverTime){
   const note=document.getElementById("gd20Cmd");
   if(note){
     if(externalStop){
-      note.textContent = "External switch is open. Close it, then press RUN.";
+      note.textContent = "External switch is open. Close it, then press RUN in service mode.";
       note.dataset.kind = "ext";
-    }else if(note.dataset.kind==="ext"){
-      note.textContent = "";
-      note.dataset.kind = "";
+    }else if(note.dataset.kind !== "command" && note.dataset.kind !== "error"){
+      note.textContent = "Service run ignores automatic stops. Use STOP to end it.";
+      note.dataset.kind = "service";
     }
   }
 
@@ -426,14 +427,24 @@ async function sendGd20(run){
     const r = await fetch("/api/gd20/command",{
       method:"POST",
       headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({run:run}),
+      body:JSON.stringify({run:run, service:run===true}),
       cache:"no-store"
     });
 
     if(r.status===409){
+      let detail="";
+      try{
+        const payload=await r.json();
+        detail = payload && payload.detail ? String(payload.detail) : "";
+      }catch(_e){}
       if(note){
-        note.textContent = "External switch is open. Close it, then press RUN.";
-        note.dataset.kind = "ext";
+        if(detail==="external stop is active"){
+          note.textContent = "External switch is open. Close it, then press RUN in service mode.";
+          note.dataset.kind = "ext";
+        }else{
+          note.textContent = "Command was refused.";
+          note.dataset.kind = "error";
+        }
       }
       return;
     }

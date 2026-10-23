@@ -25,6 +25,7 @@ if [[ ! -f "$MARKER" ]]; then
   mariadb --defaults-file="$CNF" ejector < "$ROOT/db/schema_v1.0.0.sql"
   mariadb --defaults-file="$CNF" ejector < "$ROOT/db/migrate_invt_gd20.sql"
   mariadb --defaults-file="$CNF" ejector < "$ROOT/db/migrate_em2rs_556.sql"
+  mariadb --defaults-file="$CNF" ejector < "$ROOT/db/migrate_alarms.sql"
 
   touch "$MARKER"
   chown mysql:mysql "$MARKER"

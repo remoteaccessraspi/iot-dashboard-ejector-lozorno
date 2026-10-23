@@ -172,15 +172,22 @@ table tr > *:first-child * {
 /* ============================= */
 
 .nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 24px;
   margin-bottom: 32px;
-  font-size: 1.8rem;      /* 👈 väčšie písmo */
+  font-size: 1.8rem;
 }
 
 .nav a {
-  color: #ffffff;         /* 👈 biele */
-  margin-right: 24px;
+  color: #ffffff;
   text-decoration: none;
-  font-weight: bold;      /* 👈 bold */
+  font-weight: bold;
+}
+
+.nav button.btn-service {
+  margin: 0;
 }
 
 .nav a:hover {
@@ -437,6 +444,11 @@ button {
 }
 
 button.btn-run { background: #2e7d32; }
+button.btn-run:disabled {
+  background: #616161;
+  color: #d0d0d0;
+  opacity: 1;
+}
 button.btn-stop { background: #c62828; }
 
 button:disabled {
@@ -496,6 +508,10 @@ button:disabled {
   font-size: 1rem;
   font-weight: 600;
   line-height: 1.6;
+}
+
+#gd20Run {
+  white-space: nowrap;
 }
 
 .gd20-actions input[type="number"] {
@@ -585,4 +601,155 @@ button:disabled {
 
 .btn-live-active:hover {
   background: #616161;   /* zostáva sivá */
+}
+
+.alarm-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 12px 0 16px;
+}
+
+.card > .alarm-bar {
+  margin: 16px 0 0;
+}
+
+.alarm-bar[hidden] {
+  display: none;
+}
+
+.alarm-item,
+.warn-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border-radius: 10px;
+}
+
+.alarm-item {
+  background: #5a1d1d;
+  border: 1px solid #a33;
+}
+
+.warn-item {
+  background: #4a3b12;
+  border: 1px solid #a80;
+}
+
+.alarm-item button,
+.warn-item button {
+  height: 36px;
+  min-width: 72px;
+}
+
+.home-card {
+  flex: 1 1 100%;
+}
+
+.home-values {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px 48px;
+}
+
+.home-metric {
+  flex: 1 1 240px;
+}
+
+.home-label {
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: #90caf9;
+}
+
+.home-reading {
+  font-size: 3.4rem;
+  font-weight: 700;
+  line-height: 1.1;
+  color: #ffffff;
+}
+
+.home-reading.stale {
+  color: #ff5252;
+}
+
+.home-controls {
+  position: relative;
+}
+
+.home-actions {
+  align-items: center;
+  width: calc(50% - 6px);
+  max-width: calc(50% - 6px);
+}
+
+.home-actions > button {
+  flex: 1 1 0;
+}
+
+.home-actions-service {
+  width: auto;
+  max-width: 100%;
+}
+
+.home-actions-service > button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+button.btn-service {
+  background: #455a64;
+}
+
+.service-pop {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  width: calc(50% - 6px);
+  max-width: calc(50% - 6px);
+  margin: 0;
+  background: #1e1e1e;
+}
+
+.service-pop[hidden] {
+  display: none;
+}
+
+.service-pop-field {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.service-pop label {
+  margin: 0;
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.service-pop input {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+  margin: 0;
+  -webkit-text-security: disc;
+}
+
+.service-pop-actions {
+  width: 100%;
+}
+
+.service-pop-actions button {
+  flex: 1 1 0;
+}
+
+#serviceError {
+  color: #ff5252;
 }

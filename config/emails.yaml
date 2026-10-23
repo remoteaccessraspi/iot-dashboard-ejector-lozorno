@@ -1,0 +1,3 @@
+# Príjemcovia alarmových mailov. Odosielateľ a heslo sú v secrets.yaml.
+recipients:
+  - remote.access.raspi@gmail.com
