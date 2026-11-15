@@ -339,6 +339,9 @@ class InvtGd20Device(BaseDevice):
         # Setpoint sa posiela, kým sa 0x3008 nezhoduje s gd20_setpoint_kpa.
         self._setpoint_seen = False
         self._setpoint_ts = None
+        # Stojaci GD20 hlási v 0x3008 nulu. Vtedy sa povel zapíše raz na hodnotu z HMI
+        # a znova až po výpadku spojenia, keď mohol menič stratiť 0x2002.
+        self._parked_ts = None
         # Setup z configu sa dokončí raz po štarte. Ďalšie cykly ho už nečítajú.
         self._setup_done = not bool((device_cfg.get("setup") or {}).get("enabled"))
 
@@ -395,6 +398,7 @@ class InvtGd20Device(BaseDevice):
                 client,
                 db_conn,
                 values["pid_setpoint_kpa"],
+                running=values["running"],
             )
             if synced_kpa is not None:
                 values["pid_setpoint_kpa"] = synced_kpa
@@ -734,7 +738,7 @@ class InvtGd20Device(BaseDevice):
         self._command_ts = row[1]
         print(f"GD20 command {label} -> 0x{int(control['address']):04X} = 0x{raw:04X}")
 
-    def _apply_pending_setpoint(self, client, db_conn, actual_kpa):
+    def _apply_pending_setpoint(self, client, db_conn, actual_kpa, running=None):
 
         try:
             with db_conn.cursor() as cur:
@@ -767,6 +771,9 @@ class InvtGd20Device(BaseDevice):
         if raw is None:
             self._ignore_setpoint(row)
             return None
+
+        if running == 0 and actual_kpa is not None and row[1] == self._parked_ts:
+            return percent_to_kpa(raw * float(command["scale"]), self.pressure)
 
         if actual_kpa is not None and kpa_to_pid_raw(actual_kpa, command) == raw:
             self._setpoint_seen = True
@@ -801,6 +808,8 @@ class InvtGd20Device(BaseDevice):
 
         self._setpoint_seen = True
         self._setpoint_ts = row[1]
+        if running == 0:
+            self._parked_ts = row[1]
         if actual_kpa is None:
             print(f"GD20 setpoint {kpa:g} kPa -> 0x{int(command['address']):04X} = {raw}")
         else:
@@ -821,6 +830,8 @@ class InvtGd20Device(BaseDevice):
         self._setpoint_ts = row[1]
 
     def _set_offline(self, db_conn):
+
+        self._parked_ts = None
 
         try:
             with db_conn.cursor() as cur:

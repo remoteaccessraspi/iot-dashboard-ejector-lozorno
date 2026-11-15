@@ -370,6 +370,54 @@ class Gd20SetpointSyncTest(unittest.TestCase):
 
         self.assertEqual(len(client.writes), 2)
 
+    def test_stopped_drive_gets_the_setpoint_once(self):
+
+        client = _Client()
+        conn = _Conn(("811", self.ts))
+
+        first = self.device._apply_pending_setpoint(client, conn, 0, running=0)
+        second = self.device._apply_pending_setpoint(client, conn, 0, running=0)
+
+        raw = kpa_to_pid_raw(811, self.command)
+        self.assertEqual(client.writes, [(0x2002, raw, 100)])
+        self.assertEqual(first, 811.5)
+        self.assertEqual(second, 811.5)
+
+    def test_new_hmi_value_is_written_while_stopped(self):
+
+        client = _Client()
+
+        self.device._apply_pending_setpoint(client, _Conn(("811", self.ts)), 0, running=0)
+        later = self.ts + timedelta(minutes=1)
+        self.device._apply_pending_setpoint(client, _Conn(("750", later)), 0, running=0)
+
+        self.assertEqual(
+            [value for _address, value, _slave in client.writes],
+            [kpa_to_pid_raw(811, self.command), kpa_to_pid_raw(750, self.command)],
+        )
+
+    def test_lost_link_rewrites_the_stopped_setpoint(self):
+
+        client = _Client()
+        conn = _Conn(("811", self.ts))
+
+        self.device._apply_pending_setpoint(client, conn, 0, running=0)
+        self.device._set_offline(conn)
+        self.device._apply_pending_setpoint(client, conn, 0, running=0)
+
+        self.assertEqual(len(client.writes), 2)
+
+    def test_running_mismatch_is_still_retried_after_a_stopped_write(self):
+
+        client = _Client()
+        conn = _Conn(("811", self.ts))
+
+        self.device._apply_pending_setpoint(client, conn, 0, running=0)
+        self.device._apply_pending_setpoint(client, conn, 0, running=1)
+        self.device._apply_pending_setpoint(client, conn, 0, running=1)
+
+        self.assertEqual(len(client.writes), 3)
+
     def test_missing_command_is_left_alone(self):
 
         client = _Client()
