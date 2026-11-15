@@ -10,6 +10,7 @@ modbus:
   poll_period_s: 5
 
 
+# Master, HMI a converter sa pripájajú sem (RAM inštancia).
 # user a password sú v config/secrets.yaml, ktorý nie je verzovaný.
 # Vzor je v config/secrets.yaml.example. Prepísať ich vie aj prostredie
 # cez EJECTOR_DB_USER a EJECTOR_DB_PASSWORD.
@@ -18,7 +19,7 @@ database:
   port: 3307
   name: ejector
 
-# RAM inštancia. Master a HMI sa pripájajú sem.
+# RAM inštancia pre archive_sync. Musí ukazovať na to isté ako database.
 database_hot:
   host: 127.0.0.1
   port: 3307
@@ -57,3 +58,11 @@ alarms:
   loop_high_ma: 21.0
   loop_channels: [6, 7, 8]
   loop_max_age_s: 10
+  # Čerstvosť teploty pre štart a teplotné alarmy. Staršia vzorka sa neberie.
+  ready_max_age_s: 10
+  # Medzera medzi vzorkami, ktorá ešte nezlomí hold_s (jeden vynechaný poll pri 5 s).
+  ready_max_gap_s: 15
+  # Čerstvosť vzorky meniča pri rozhodovaní o kavitácii.
+  cavitation_max_age_s: 15
+  # Ako ďaleko do histórie hľadať, či AI2 už dosiahlo cavitation.min_kpa.
+  cavitation_arm_lookback_s: 10800

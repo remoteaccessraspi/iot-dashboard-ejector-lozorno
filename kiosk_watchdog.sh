@@ -186,9 +186,9 @@ check_once() {
     http_fails=$((http_fails + 1))
     log "dashboard neodpoveda (${http_fails}/${HTTP_FAILS_BEFORE_RESTART})"
     if (( http_fails >= HTTP_FAILS_BEFORE_RESTART )); then
-      if ! service_active mariadb; then
-        log "mariadb nebezi, restart sluzby"
-        systemctl restart mariadb || log "restart mariadb zlyhal"
+      if ! service_active mariadb-hot; then
+        log "mariadb-hot nebezi, restart sluzby"
+        systemctl restart mariadb-hot || log "restart mariadb-hot zlyhal"
         sleep 3
       fi
       log "restart iot-dashboard"

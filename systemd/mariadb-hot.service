@@ -21,7 +21,7 @@ ExecStartPost=+/home/pi/iot-dashboard-ejector-lozorno/scripts/mariadb-hot-schema
 
 KillSignal=SIGTERM
 SendSIGKILL=no
-Restart=on-abnormal
+Restart=on-failure
 RestartSec=5s
 TimeoutStartSec=120
 TimeoutStopSec=60

@@ -25,15 +25,16 @@ invt_gd20:
     ai_report_min_ma: 0
     ai_report_max_ma: 20
 
+  # NEAKTÍVNE: Python tento blok nečíta. PID v meniči sa pri štarte neprepíše.
+  # Čísla sú len poznámka z manuálu GD20-EU. Zmena tu beh nezmení.
   pid_defaults:
-    # GD20 používa Kp, Ti, Td. Factory defaults podľa manuálu GD20-EU.
-    # Pri štarte sa do meniča nezapisujú, aktuálny stav VFD má prednosť.
     kp: 1.00
     ti_s: 0.10
     td_s: 0.00
 
-  # Čerstvosť vzorky pre rozhodnutie EM2RS. Pásmo, kedy EM2RS smie regulovať,
-  # je em2rs_556.valve.p7_trim.invt_tolerance_kpa.
+  # Čerstvosť vzorky pre stabilitu INVT: rozhodnutie EM2RS a stop hrana t_cond_in
+  # (ready_max alebo ready_max_stable). Pásmo stability je
+  # em2rs_556.valve.p7_trim.invt_tolerance_kpa.
   stability:
     max_age_s: 10
 
@@ -43,8 +44,8 @@ invt_gd20:
   cavitation:
     enabled: true
     min_kpa: 750
-    confirm_s: 30
-    frequency_limit_hz: 50
+    confirm_s: 10
+    frequency_limit_hz: 45
 
   # Raz pri štarte mastera, teda aj po reboote Raspberry.
   # Zapíše sa len required_value, ktoré sa od meniča líši.
