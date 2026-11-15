@@ -89,6 +89,13 @@ service_active() {
   systemctl is-active --quiet "$1"
 }
 
+# Reštart zvonka (restart_all.sh, update.sh) nechá jednotku na chvíľu neaktívnu.
+service_down() {
+  service_active "$1" && return 1
+  sleep 5
+  ! service_active "$1"
+}
+
 wayland_ok() {
   [[ -S "$WAYLAND_SOCK" ]] && pgrep -x labwc >/dev/null 2>&1
 }
@@ -170,7 +177,7 @@ check_once() {
 
   local dashboard_http=0 master_ok=0 session_ok=0 kiosk_ok=0 healthy=1
 
-  if service_active iot-master; then
+  if ! service_down iot-master; then
     master_ok=1
   else
     healthy=0
@@ -186,7 +193,7 @@ check_once() {
     http_fails=$((http_fails + 1))
     log "dashboard neodpoveda (${http_fails}/${HTTP_FAILS_BEFORE_RESTART})"
     if (( http_fails >= HTTP_FAILS_BEFORE_RESTART )); then
-      if ! service_active mariadb-hot; then
+      if service_down mariadb-hot; then
         log "mariadb-hot nebezi, restart sluzby"
         systemctl restart mariadb-hot || log "restart mariadb-hot zlyhal"
         sleep 3

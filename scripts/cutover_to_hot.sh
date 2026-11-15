@@ -1,5 +1,7 @@
 #!/bin/bash
 # Prepne master a HMI na RAM. Karta ostáva archív na porte 3306.
+# Jednorazový prechod, na tomto Pi už prebehol. Neaplikuje migrate_em2rs_556.sql
+# ani migrate_alarms.sql. Na novom Pi ich treba spustiť podľa README, časť Database.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

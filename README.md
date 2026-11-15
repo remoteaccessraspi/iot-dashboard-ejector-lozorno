@@ -205,9 +205,8 @@ The `EJECTOR_DB_*` variables apply in full to `database`. `database_hot` and
 
 Services read `secrets.yaml` on every connection, but the database account is
 not updated by that. `scripts/mariadb-hot-schema.sh` sets the RAM password
-only when `mariadb-hot` starts, and it takes the first indented `user` and
-`password` in `secrets.yaml`, so `database` must stay the first section.
-To change the password:
+only when `mariadb-hot` starts, from `database.user` and `database.password`
+in `secrets.yaml`. To change the password:
 
 1. Edit `config/secrets.yaml`.
 2. Run `ALTER USER` for that account on the SD instance (`sudo mysql`).

@@ -34,18 +34,21 @@ fi
 
 # Po reboote install-db zmaže účty. Rovnaký používateľ ako na karte, heslo zo secrets.
 python3 - "$ROOT/config/secrets.yaml" << 'PY' | mariadb --defaults-file="$CNF"
-import re
 import sys
 from pathlib import Path
 
-text = Path(sys.argv[1]).read_text(encoding="utf-8")
+import yaml
+
+secrets = yaml.safe_load(Path(sys.argv[1]).read_text(encoding="utf-8")) or {}
+database = secrets.get("database") if isinstance(secrets, dict) else None
+if not isinstance(database, dict):
+    raise SystemExit("secrets.yaml nemá sekciu database")
 
 def field(name):
-    match = re.search(rf"(?m)^  {name}:\s*(.+?)\s*$", text)
-    if not match:
+    value = database.get(name)
+    if value is None or str(value) == "":
         raise SystemExit(f"secrets.yaml nemá database.{name}")
-    value = match.group(1).strip().strip("'\"")
-    return value.replace("\\", "\\\\").replace("'", "''")
+    return str(value).replace("\\", "\\\\").replace("'", "''")
 
 user = field("user")
 password = field("password")

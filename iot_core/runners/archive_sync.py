@@ -15,27 +15,22 @@ from pymysql.cursors import DictCursor
 from iot_core.core.config import load_config
 
 
+# relay*, system, system_info a fault_log zo schémy rodičovského projektu
+# nikto nezapisuje, preto sa nesynchronizujú.
 HISTORY_TABLES = (
     "temperature",
     "current_loop",
     "conversion_table",
     "invt_gd20",
     "em2rs_556",
-    "relay",
-    "relay_history",
-    "relay_cycles",
     "control",
-    "system",
-    "fault_log",
     "alarm_event",
 )
 
 STATE_TABLES = (
     "control_state",
-    "relay_state",
     "invt_gd20_state",
     "em2rs_556_state",
-    "system_info",
     "alarm_state",
     "device_link",
 )
@@ -208,7 +203,7 @@ def copy_history(hot, archive, table, batch_rows):
         if not rows:
             break
 
-        mutable = table in ("fault_log", "alarm_event")
+        mutable = table == "alarm_event"
         write_rows(
             archive,
             table,
@@ -221,17 +216,6 @@ def copy_history(hot, archive, table, batch_rows):
 
         if len(rows) < batch_rows:
             break
-
-    if table == "fault_log":
-        with hot.cursor() as cur:
-            cur.execute(
-                f"SELECT * FROM {ident(table)} WHERE active = 1 AND id <= %s",
-                (last_id,),
-            )
-            active = cur.fetchall()
-
-        if active:
-            write_rows(archive, table, active, upsert=True)
 
     if table == "alarm_event":
         with hot.cursor() as cur:
@@ -465,9 +449,7 @@ def backfill_hot(cfg):
         copied = {}
 
         for table in HISTORY_TABLES:
-            if table == "fault_log":
-                or_sql = "active = 1"
-            elif table == "alarm_event":
+            if table == "alarm_event":
                 or_sql = "cleared_ts IS NULL"
             else:
                 or_sql = None
