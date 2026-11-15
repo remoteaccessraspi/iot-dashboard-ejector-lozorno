@@ -4,6 +4,11 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 UNIT_DIR=/etc/systemd/system
 
+if [[ ! -f "$UNIT_DIR/mariadb-hot.service" ]]; then
+  echo "Chýba mariadb-hot. Najprv spusti: sudo $ROOT/scripts/install_mariadb_hot.sh" >&2
+  exit 1
+fi
+
 echo "Installing systemd units from $ROOT/systemd ..."
 
 sudo cp "$ROOT/systemd/iot-master.service" "$UNIT_DIR/"
@@ -21,4 +26,4 @@ sudo systemctl disable --now iot-converter || true
 
 echo
 echo "Status:"
-systemctl --no-pager --full status iot-dashboard iot-master iot-kiosk-watchdog iot-converter || true
+systemctl --no-pager --full status mariadb-hot iot-db-warm iot-db-archive iot-dashboard iot-master iot-kiosk-watchdog iot-converter || true

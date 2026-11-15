@@ -37,7 +37,7 @@ instance. `iot-db-archive` copies new history to the SD MariaDB on port 3306.
 kiosk session. `sudo ./scripts/install_mariadb_hot.sh` installs the RAM
 instance; it is separate from `install_services.sh`. Run it first: master,
 dashboard and `iot-db-warm` require `mariadb-hot`, so `install_services.sh`
-fails on a Pi without it. `install_services.sh` does not install
+stops with a message on a Pi without it. `install_services.sh` does not install
 `systemd/sudoers-iot-ejector`. That file lets `pi` start, stop and read the
 logs of these units without a password. Install it with
 `sudo visudo -cf systemd/sudoers-iot-ejector && sudo install -m 440 systemd/sudoers-iot-ejector /etc/sudoers.d/iot-ejector`.
@@ -106,9 +106,16 @@ That script imports `reportlab` and the DejaVu fonts in
 
 ## Config notes
 
-Some keys in device YAML are comments for later work. Python does not read
-them: `invt_gd20.pid_defaults`, `em2rs_556.valve.pressure_interlock`,
-`safety.scaling_confirmed`, `manual.max_steps`, `p7_trim` has no YAML
+Some keys in device YAML are comments for later work, marked NEAKTÍVNE. Python
+does not read them: `invt_gd20.pid_defaults`, `invt_gd20.pressure.feedback_input`,
+`invt_gd20.commands.pid_feedback_command`, `em2rs_556.valve.pressure_interlock`,
+`valve.full_travel_revolutions`, `valve.homing_limit_switches`,
+`valve.homing_method`, `valve.homing_pulses_continue_at_end`,
+`valve.reference_method`, the reference-only EM2RS registers named in the
+comment above `em2rs_556.modbus.registers`, `safety.scaling_confirmed`, `manual.max_steps`. Only the
+GD20 parameters in `setup.parameters` are written by the master; the other
+`required_value` entries are compared only by `scripts/test_gd20_pid.py`.
+`p7_trim` has no YAML
 setpoint (HMI writes `control_state.em2rs_p7_setpoint_kpa`), and the master
 never reads `conversion.interval_sec`. Temperature and cavitation sample ages
 are in `config/common.yaml` under `alarms` (`ready_max_age_s`,

@@ -68,12 +68,15 @@ em2rs_556:
   valve:
     pulses_per_revolution: 200
     full_travel_steps: 600
+    # NEAKTÍVNE: full_travel_revolutions Python nečíta. Beh berie full_travel_steps.
     full_travel_revolutions: 3
     # Homing ide do mechanického konca bez koncových spínačov.
     # Motor záťaž na konci znesie a pulzy ďalej dostáva.
     # 650 pulzov BACKWARD je samostatný homing, nie bežný povel v rozsahu 0..600.
     homing_steps: 650
     homing_direction: CLOSE
+    # NEAKTÍVNE: homing_limit_switches, homing_method, homing_pulses_continue_at_end
+    # a reference_method Python nečíta. Opisujú mechaniku, beh berie homing_steps.
     homing_limit_switches: false
     homing_method: stall_at_end
     homing_pulses_continue_at_end: true
@@ -164,6 +167,10 @@ em2rs_556:
     acceleration: 100
     deceleration: 100
   modbus:
+    # Mapa registrov podľa manuálu V1.5. Python berie adresy registrov, ktoré
+    # používa startup_check, pohyb, homing a čítanie polohy. range_min, range_max,
+    # firmware, soft limity, homing_mode až homing_overtravel, quick_stop_time,
+    # pr_alarm, current_alarm a profile_position_* sú NEAKTÍVNE, len referencia.
     registers:
       # Ciele sú v startup_check: Pr0.00=200, Pr5.00=8. scaling_confirmed ostáva false, kým živé čítanie nesedí.
       pulse_per_revolution:

@@ -6,7 +6,7 @@ from iot_core.core.config import load_config
 from iot_core.hmi.session import idle_seconds
 from iot_core.mail.alarm_mail import schedule_alarm_mail
 from iot_core.db.connection import get_connection
-from iot_core.modbus.client import wait_for_client
+from iot_core.modbus.client import timeout_sec, wait_for_client
 
 from iot_core.devices.ck_3083es_8ch import Ck3083es8chDevice
 from iot_core.devices.ck_7082e_8ch import Ck7082e8chDevice
@@ -117,7 +117,7 @@ def main():
 
     client = wait_for_client(retry_sec=5.0)
 
-    timeout = float(modbus_cfg.get("timeout_sec", 0.3))
+    timeout = timeout_sec(modbus_cfg)
 
     if hasattr(client, "timeout"):
         client.timeout = timeout

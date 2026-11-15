@@ -15,6 +15,7 @@ invt_gd20:
     max_kpa: 1500
     signal_min_ma: 4
     signal_max_ma: 20
+    # NEAKTÍVNE: feedback_input Python nečíta. AI2 je pevne monitoring.ai2.
     feedback_input: "AI2"
     feedback_min_percent: 0
     feedback_max_percent: 100
@@ -97,6 +98,7 @@ invt_gd20:
       engineering_min: 0
       engineering_max: 1500
 
+    # NEAKTÍVNE: Python tento povel nepoužíva. Spätná väzba PID ide z AI2 meniča.
     pid_feedback_command:
       alias: "pid_feedback_command"
       address: 0x2003
@@ -229,6 +231,8 @@ invt_gd20:
       access: "read"
       scale: 1
 
+  # Master zapisuje a kontroluje len parametre zo setup.parameters.
+  # required_value ostatných porovnáva iba scripts/test_gd20_pid.py, beh ich nemení.
   parameters:
 
     run_command_source:
