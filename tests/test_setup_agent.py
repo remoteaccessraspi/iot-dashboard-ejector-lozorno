@@ -134,7 +134,7 @@ class SetupAgentTest(unittest.TestCase):
         # 2000 nových po 0,40, 8000 z cache po 0,10, 200 výstupných po 1,60 za milión
         self.assertEqual(summary["today_tokens"], 10200)
         self.assertAlmostEqual(summary["month_usd"], 0.00192, places=6)
-        self.assertAlmostEqual(summary["left_usd"], 5.0 - 0.0019, places=4)
+        self.assertAlmostEqual(summary["left_usd"], 1.0 - 0.0019, places=4)
         self.assertEqual(summary["questions_today"], 1)
 
     def test_old_usage_file_is_upgraded(self):

@@ -15,7 +15,7 @@ DEFAULTS = {
     "timeout_s": 30,
     "max_output_tokens": 800,
     "daily_limit": 100,
-    "monthly_budget_usd": 5.0,
+    "monthly_budget_usd": 1.0,
     "price_input_per_mtok": 0.40,
     "price_cached_per_mtok": 0.10,
     "price_output_per_mtok": 1.60,
