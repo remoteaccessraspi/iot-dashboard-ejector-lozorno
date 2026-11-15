@@ -1,0 +1,40 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>IOT HMI - Setup</title>
+  <link rel="stylesheet" href="{{ request.url_for('static', path='css/style.css') }}?v=setup">
+</head>
+<body>
+
+{% include "header.html" %}
+
+<div id="setupRestart" class="setup-restart" hidden>
+  <span>Zmena čaká na reštart služieb.</span>
+  <span id="setupRestartNote" class="small"></span>
+  <button id="setupRestartBtn" class="btn-run" type="button">Reštartovať</button>
+</div>
+
+<div class="row">
+
+  <div class="card setup-card">
+    <div class="section-title">Setup — zmena kritérií</div>
+    <div id="setupLog" class="setup-log" aria-live="polite"></div>
+    <form id="setupForm" class="setup-form">
+      <textarea id="setupText" rows="2" maxlength="1000"
+        placeholder="Napíšte, čo chcete zmeniť, napr. „stop výparníka až pod 16 °C“. Enter odošle, Shift+Enter nový riadok."></textarea>
+      <button id="setupSend" class="btn-run" type="submit">Odoslať</button>
+    </form>
+    <div id="setupAgentNote" class="small"></div>
+  </div>
+
+  <div class="card setup-history-card">
+    <div class="section-title">Posledné zmeny</div>
+    <table id="setupHistory"></table>
+  </div>
+
+</div>
+
+<script src="{{ request.url_for('static', path='js/setup.js') }}?v=setup"></script>
+</body>
+</html>

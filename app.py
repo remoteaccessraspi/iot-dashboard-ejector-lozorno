@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -16,6 +16,11 @@ from iot_core.core.config import load_config, load_hmi_secrets
 from iot_core.ready import start_allowed
 from iot_core.service_mode import RUN_SOURCE
 from iot_core.devices.em2rs_556 import settle_remaining_s
+from iot_core.setup import agent as setup_agent
+from iot_core.setup import services as setup_services
+from iot_core.setup import yaml_edit
+from iot_core.setup.keys import check as setup_check
+from iot_core.setup.keys import read_values as setup_values
 from iot_core.hmi.session import (
     SERVICE_COOKIE,
     idle_seconds,
@@ -1322,3 +1327,138 @@ def api_live(minutes: int = 10):
 
         if conn:
             conn.close()
+
+# --------------------------------------------------
+# SETUP
+# --------------------------------------------------
+
+def _drive_running():
+
+    cfg = current_cfg()
+    gd20_cfg = cfg.get("invt_gd20") or {}
+    max_age_s = (gd20_cfg.get("stability") or {}).get("max_age_s", 10)
+    conn = None
+
+    try:
+        conn = db_connect(cfg)
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT * FROM invt_gd20_state WHERE device_id = %s",
+                (int(gd20_cfg.get("slave_id", 100)),),
+            )
+            row = cur.fetchone()
+    except Exception as e:
+        print("setup drive state:", e)
+        return None
+    finally:
+        if conn:
+            conn.close()
+
+    flag = _gd20_running_flag(row, gd20_cfg, max_age_s)
+    return None if flag is None else bool(flag)
+
+
+@app.get("/setup", response_class=HTMLResponse)
+def setup_page(request: Request):
+
+    denied = _service_page(request)
+
+    if denied:
+        return denied
+
+    return templates.TemplateResponse("setup.html", {"request": request})
+
+
+@app.get("/api/setup/status")
+def setup_status(request: Request):
+
+    _service_api(request)
+    opts = setup_agent.settings(current_cfg())
+    entries = yaml_edit.history(limit=20)
+
+    return {
+        "agent": bool(opts["enabled"]),
+        "drive_running": _drive_running(),
+        "restart_pending": setup_services.restart_pending(entries, setup_services.started_at()),
+        "history": entries,
+    }
+
+
+@app.post("/api/setup/chat")
+def setup_chat(request: Request, body: dict = Body(...)):
+
+    _service_api(request)
+    history = body.get("history") if isinstance(body.get("history"), list) else []
+
+    try:
+        return setup_agent.ask(
+            body.get("text"), history, setup_values(), _drive_running(), current_cfg()
+        )
+    except setup_agent.AgentError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from None
+
+
+@app.post("/api/setup/apply")
+def setup_apply(request: Request, body: dict = Body(...)):
+
+    _service_api(request)
+    changes = body.get("changes")
+
+    if not isinstance(changes, list) or not changes or not all(isinstance(c, dict) for c in changes):
+        raise HTTPException(status_code=400, detail="Návrh je prázdny.")
+
+    values = setup_values()
+
+    for change in changes:
+        if change.get("key") in values and values[change["key"]] != change.get("old"):
+            raise HTTPException(status_code=409, detail="Súbor sa medzitým zmenil. Návrh treba zopakovať.")
+
+    accepted, errors, confirm = setup_check(changes, values)
+
+    if errors:
+        raise HTTPException(status_code=400, detail=" ".join(errors))
+
+    if confirm and body.get("confirmed") is not True:
+        raise HTTPException(status_code=400, detail="Hodnota mimo rozumného rozsahu potrebuje druhé potvrdenie.")
+
+    try:
+        entry = yaml_edit.apply(
+            [{"key": k, "old": values[k], "new": v} for k, v in accepted.items()],
+            request_text=str(body.get("request") or "")[:setup_agent.MAX_TEXT],
+            confirmed=bool(confirm),
+        )
+    except yaml_edit.Conflict as e:
+        raise HTTPException(status_code=409, detail=str(e)) from None
+    except yaml_edit.EditError as e:
+        raise HTTPException(status_code=500, detail=f"Zápis zlyhal: {e}") from None
+
+    return {"status": "ok", "entry": entry}
+
+
+@app.post("/api/setup/revert")
+def setup_revert(request: Request, body: dict = Body(...)):
+
+    _service_api(request)
+    entry = next((e for e in yaml_edit.history(limit=50) if e.get("ts") == body.get("ts")), None)
+
+    if entry is None:
+        raise HTTPException(status_code=404, detail="Zmena sa nenašla.")
+
+    changes = [{"key": c["key"], "new": c["old"]} for c in entry.get("changes") or []]
+    return {"proposal": setup_agent.proposal(changes, setup_values())}
+
+
+@app.post("/api/setup/restart")
+def setup_restart(request: Request):
+
+    _service_api(request)
+
+    if _drive_running() is not False:
+        raise HTTPException(status_code=409, detail="Reštart ide len keď menič stojí.")
+
+    try:
+        setup_services.restart_all()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Reštart zlyhal.") from e
+
+    return {"status": "ok"}

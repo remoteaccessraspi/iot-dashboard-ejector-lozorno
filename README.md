@@ -194,8 +194,7 @@ to inject credentials from a systemd `EnvironmentFile`:
 `EJECTOR_DB_HOST`, `EJECTOR_DB_PORT`, `EJECTOR_DB_USER`, `EJECTOR_DB_PASSWORD`,
 `EJECTOR_DB_NAME`. Alarm mail reads `smtp` from the same secrets file.
 Recipients live in `config/emails.yaml`. `openai.api_key` in the same secrets
-file is stored for other local projects. The master and the HMI do not import
-the `openai` package; `load_openai_secrets()` only reads the key.
+file is used by the Setup card in the HMI. The master does not import `openai`.
 `docs/OPENAI.md` describes the Platform account and does not hold the key.
 `images/openai_wireframe.py`, named in that note, is not in this repository.
 
@@ -222,7 +221,30 @@ and `iot-db-archive`. `config/emails.yaml` is read when a mail is sent.
 Pins for this Pi (Python 3.13) are in `requirements.txt`. `update.sh` installs
 `requirements_pi.txt`, which includes that file, so the two lists stay one list.
 `reportlab`, `pillow` and `charset-normalizer` are there for the operator PDF.
-A fresh venv does not need the `openai` package.
+`openai` and its `httpx2` stack are there for the Setup card.
+
+## Setup card
+
+`/setup` is a service page. The customer writes in Slovak what should change. An
+OpenAI model (`setup_agent` in `config/common.yaml`, default `gpt-4.1-mini`)
+answers by the manual `docs/agent/pravidla.md` and may propose new values for
+whitelisted keys only. The whitelist, ranges and key relations are in
+`iot_core/setup/keys.py`; the model's output goes through it before the card
+shows anything. Nothing is written until the customer clicks Súhlas. A value
+outside the reasonable range needs a second click.
+
+The write in `iot_core/setup/yaml_edit.py` replaces the value on its line only,
+keeps comments, checks that no other key changed and replaces the file
+atomically. The previous file goes to `var/setup-backup/` (last 50), the change
+to `var/setup-changes.jsonl`. Revert builds a new proposal from that log.
+
+Keys from device files and `common.yaml` need a restart. The card shows a
+Reštartovať button, enabled only while a fresh GD20 sample says the drive is
+stopped. It restarts `iot-master`, `iot-db-archive` and then `iot-dashboard`
+through the sudoers rule. `emails.yaml` applies without restart.
+
+Card changes stay uncommitted in git. `update.sh` stops before `git pull` while
+`config/` has local changes. The spec is `docs/agent/zadanie.md`.
 
 ## Database
 

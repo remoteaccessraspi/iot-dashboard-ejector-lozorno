@@ -4,6 +4,14 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 cd "$ROOT"
 
+LOCAL_CONFIG="$(git status --porcelain -- config/)"
+if [[ -n "$LOCAL_CONFIG" ]]; then
+  echo "V config/ sú lokálne zmeny (napr. z karty Setup):"
+  echo "$LOCAL_CONFIG"
+  echo "Prenes ich do repozitára alebo odlož (git stash), potom spusti update znova."
+  exit 1
+fi
+
 echo "Updating repository..."
 git pull
 
