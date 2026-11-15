@@ -243,6 +243,14 @@ Reštartovať button, enabled only while a fresh GD20 sample says the drive is
 stopped. It restarts `iot-master`, `iot-db-archive` and then `iot-dashboard`
 through the sudoers rule. `emails.yaml` applies without restart.
 
+Under the chat the card shows tokens and approximate USD for today and this
+month, the rest of `monthly_budget_usd` and questions against `daily_limit`.
+Counts come from the `usage` of each OpenAI answer and live in
+`var/setup-usage.json`; prices per million tokens are in `setup_agent`. When the
+monthly budget is spent the agent stops answering. The real OpenAI credit
+balance is shared with other projects and is visible only on
+platform.openai.com; a project key cannot read it.
+
 Card changes stay uncommitted in git. `update.sh` stops before `git pull` while
 `config/` has local changes. The spec is `docs/agent/zadanie.md`.
 

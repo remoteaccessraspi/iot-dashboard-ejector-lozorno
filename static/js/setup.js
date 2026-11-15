@@ -9,6 +9,7 @@
   const restartBox = document.getElementById("setupRestart");
   const restartBtn = document.getElementById("setupRestartBtn");
   const restartNote = document.getElementById("setupRestartNote");
+  const usageLine = document.getElementById("setupUsage");
 
   const history = [];
 
@@ -24,6 +25,24 @@
     if (value === true) return "áno";
     if (value === false) return "nie";
     return String(value);
+  }
+
+  function tokens(n) {
+    return Number(n || 0).toLocaleString("sk-SK");
+  }
+
+  function usd(n) {
+    return Number(n || 0).toLocaleString("sk-SK", {minimumFractionDigits: 2, maximumFractionDigits: 2}) + " $";
+  }
+
+  function renderUsage(u) {
+    if (!u) return;
+    usageLine.textContent =
+      `Tokeny dnes ${tokens(u.today_tokens)} (${usd(u.today_usd)}) · ` +
+      `mesiac ${tokens(u.month_tokens)} (${usd(u.month_usd)}) · ` +
+      `zostáva ${usd(u.left_usd)} z ${usd(u.budget_usd)} · ` +
+      `otázky dnes ${u.questions_today}/${u.daily_limit}`;
+    usageLine.classList.toggle("setup-error", u.left_usd <= 0 || u.questions_today >= u.daily_limit);
   }
 
   function scroll() {
@@ -162,6 +181,7 @@
     try {
       const data = await post("/api/setup/chat", {text: text, history: history});
       waiting.remove();
+      renderUsage(data.usage);
       say("agent", data.reply);
       history.push({role: "user", content: text});
       history.push({role: "assistant", content: data.reply});
@@ -245,6 +265,7 @@
       const data = await response.json();
 
       renderHistory(data.history || []);
+      renderUsage(data.usage);
       agentNote.textContent = data.agent ? "" : "Agent je v common.yaml vypnutý. Zoznam zmien a Vrátiť fungujú.";
       restartBox.hidden = !data.restart_pending;
       restartBtn.disabled = data.drive_running !== false;

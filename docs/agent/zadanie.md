@@ -106,6 +106,8 @@ Tlačidlo **Reštartovať** v banneri je povolené len keď menič stojí. Backe
 
 - Nový blok `setup_agent` v `config/common.yaml`: `enabled`, `model`, `timeout_s`, `max_output_tokens`, `daily_limit`.
 - Predvolené: `gpt-4.1-mini`, 30 s, 800 tokenov, 100 požiadaviek denne.
+- `monthly_budget_usd` (5 $) a ceny za milión tokenov. Pod rozhovorom je riadok: tokeny a USD dnes a za mesiac, zvyšok rozpočtu, otázky dnes. Po minutí rozpočtu agent do konca mesiaca neodpovedá.
+- Skutočný zostatok kreditu OpenAI projektový kľúč prečítať nevie (403, chýba `api.usage.read`; zostatok vracia len prehliadač). Je aj spoločný s inými projektmi.
 - História rozhovoru sa drží len v otvorenej stránke a zmaže sa pri jej opustení. Posiela sa posledných 10 výmen. Podvrhnutá história nič nezapíše, návrh aj tak prejde kontrolou v Pythone.
 - Balík `openai` pribudne do `requirements.txt` s pevnou verziou.
 

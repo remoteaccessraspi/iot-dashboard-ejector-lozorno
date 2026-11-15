@@ -1373,11 +1373,13 @@ def setup_page(request: Request):
 def setup_status(request: Request):
 
     _service_api(request)
-    opts = setup_agent.settings(current_cfg())
+    cfg = current_cfg()
+    opts = setup_agent.settings(cfg)
     entries = yaml_edit.history(limit=20)
 
     return {
         "agent": bool(opts["enabled"]),
+        "usage": setup_agent.usage_summary(cfg),
         "drive_running": _drive_running(),
         "restart_pending": setup_services.restart_pending(entries, setup_services.started_at()),
         "history": entries,
@@ -1390,12 +1392,15 @@ def setup_chat(request: Request, body: dict = Body(...)):
     _service_api(request)
     history = body.get("history") if isinstance(body.get("history"), list) else []
 
+    cfg = current_cfg()
+
     try:
-        return setup_agent.ask(
-            body.get("text"), history, setup_values(), _drive_running(), current_cfg()
-        )
+        result = setup_agent.ask(body.get("text"), history, setup_values(), _drive_running(), cfg)
     except setup_agent.AgentError as e:
         raise HTTPException(status_code=503, detail=str(e)) from None
+
+    result["usage"] = setup_agent.usage_summary(cfg)
+    return result
 
 
 @app.post("/api/setup/apply")
