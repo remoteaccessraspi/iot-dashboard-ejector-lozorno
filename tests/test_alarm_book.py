@@ -8,9 +8,11 @@ from iot_core.alarms.book import (
     GD20_FAULT,
     LOOP_RANGE,
     T_COND_HIGH,
+    T_EVAP_LOW,
     T_GEN_LOW,
     TEMP_SOURCE,
     AlarmBook,
+    closed_stop_limit_steps,
     drive_fault,
 )
 
@@ -34,6 +36,7 @@ class MemoryRepo:
         self.runs = 0
         self.temperature = None
         self.recover = None
+        self.valve_recover = None
         self.run_command = None
         self.service = None
 
@@ -44,6 +47,7 @@ class MemoryRepo:
     def request_gd20_stop(self, conn):
 
         self.stops += 1
+        self.run_command = {"value": "0", "source": "alarm", "updated_ts": None}
 
     def read_temperature(self, conn):
 
@@ -76,10 +80,41 @@ class MemoryRepo:
 
         self.recover = {"armed": 0, "updated_ts": self.recover.get("updated_ts")}
 
-    def request_gd20_run(self, conn):
+    def read_valve_recover(self, conn):
+
+        if self.valve_recover is None:
+            return None
+
+        phase = self.valve_recover.get("phase")
+
+        if phase not in ("break", "start"):
+            return None
+
+        return dict(self.valve_recover)
+
+    def arm_valve_recover(self, conn, now):
+
+        self.valve_recover = {"phase": "break", "updated_ts": now}
+
+    def mark_valve_recover_start(self, conn, armed_ts):
+
+        if self.valve_recover is None:
+            return
+
+        self.valve_recover["phase"] = "start"
+        self.valve_recover["updated_ts"] = armed_ts
+
+    def clear_valve_recover(self, conn):
+
+        if self.read_valve_recover(conn) is None:
+            return
+
+        self.valve_recover = None
+
+    def request_gd20_run(self, conn, source="temperature"):
 
         self.runs += 1
-        self.run_command = {"value": "1", "source": "temperature", "updated_ts": NOW}
+        self.run_command = {"value": "1", "source": source, "updated_ts": NOW}
 
     def get_link(self, conn, source, device_id):
 
@@ -155,6 +190,15 @@ class AlarmBookTest(unittest.TestCase):
         self.assertTrue(drive_fault(1, 37))
         self.assertFalse(drive_fault(1, 0))
         self.assertFalse(drive_fault(3, None))
+
+    def test_closed_stop_limit_steps_parses_percent_and_na(self):
+
+        self.assertEqual(closed_stop_limit_steps(0, 600), 0)
+        self.assertEqual(closed_stop_limit_steps(0.1, 600), 1)
+        self.assertEqual(closed_stop_limit_steps(None, 600), 0)
+        self.assertIsNone(closed_stop_limit_steps("na", 600))
+        self.assertIsNone(closed_stop_limit_steps("NA", 600))
+        self.assertIsNone(closed_stop_limit_steps(" Na ", 600))
 
     def test_comm_loss_latches_on_the_third_miss_and_blocks_run(self):
 
@@ -483,15 +527,26 @@ class TemperatureRecoveryTest(unittest.TestCase):
             "ai2_kpa": 810.0,
             "frequency_actual_hz": 40.0,
             "updated_ts": ts,
+            "pid_setpoint_kpa": None,
+            "pid_feedback_kpa": None,
         }
         row.update(overrides)
         self.repo.gd20 = row
 
-    def temps(self, ts, gen=80.0, cond=20.0):
+    def stable_drive(self, ts, **overrides):
+
+        defaults = {
+            "pid_setpoint_kpa": 800.0,
+            "pid_feedback_kpa": 805.0,
+        }
+        defaults.update(overrides)
+        self.drive(ts, **defaults)
+
+    def temps(self, ts, gen=80.0, cond=20.0, evap=None):
 
         self.repo.temperature = {
             "ts": ts,
-            "t1": None,
+            "t1": evap,
             "t2": None,
             "t3": gen,
             "t4": None,
@@ -501,15 +556,143 @@ class TemperatureRecoveryTest(unittest.TestCase):
             "t8": None,
         }
 
-    def test_cold_generator_is_a_warning_and_does_not_stop(self):
+    def test_cold_generator_stops_after_the_hold(self):
 
         self.drive(NOW)
         self.temps(NOW, gen=70.0)
         self.book.observe(None, NOW)
+        self.assertIsNone(self.repo.get_state(None, T_GEN_LOW, TEMP_SOURCE, 3))
+        self.assertEqual(self.repo.stops, 0)
+        later = NOW + timedelta(seconds=15)
+        self.drive(later)
+        self.temps(later, gen=69.4)
+        self.book.observe(None, later)
         state = self.repo.get_state(None, T_GEN_LOW, TEMP_SOURCE, 3)
         self.assertEqual(state["class"], "WARNING")
-        self.assertEqual(self.repo.stops, 0)
+        self.assertEqual(state["message"], "t_gen_in 69.4 °C below 75")
+        self.assertEqual(self.repo.stops, 1)
+        self.assertEqual(int(self.repo.recover["armed"]), 1)
         self.assertFalse(self.book.blocks(None))
+
+    def test_cold_generator_hold_restarts_after_a_warmer_sample(self):
+
+        self.drive(NOW)
+        self.temps(NOW, gen=70.0)
+        self.book.observe(None, NOW)
+        warm = NOW + timedelta(seconds=10)
+        self.drive(warm)
+        self.temps(warm, gen=76.0)
+        self.book.observe(None, warm)
+        again = warm + timedelta(seconds=1)
+        self.drive(again)
+        self.temps(again, gen=70.0)
+        self.book.observe(None, again)
+        early = again + timedelta(seconds=14)
+        self.drive(early)
+        self.temps(early, gen=70.0)
+        self.book.observe(None, early)
+        self.assertIsNone(self.repo.get_state(None, T_GEN_LOW, TEMP_SOURCE, 3))
+        due = again + timedelta(seconds=15)
+        self.drive(due)
+        self.temps(due, gen=70.0)
+        self.book.observe(None, due)
+        self.assertEqual(self.repo.stops, 1)
+
+    def test_cold_generator_warning_while_stopped_does_not_arm_recovery(self):
+
+        self.drive(NOW, running=0, status_code=3, frequency_actual_hz=0.0)
+        self.temps(NOW, gen=70.0)
+        self.book.observe(None, NOW)
+        later = NOW + timedelta(seconds=15)
+        self.drive(later, running=0, status_code=3, frequency_actual_hz=0.0)
+        self.temps(later, gen=70.0)
+        self.book.observe(None, later)
+        self.assertIsNotNone(self.repo.get_state(None, T_GEN_LOW, TEMP_SOURCE, 3))
+        self.assertEqual(self.repo.stops, 0)
+        self.assertIsNone(self.repo.recover)
+
+    def test_cold_generator_warning_stays_until_start_is_allowed(self):
+
+        self.drive(NOW)
+        self.temps(NOW, gen=70.0)
+        self.book.observe(None, NOW)
+        later = NOW + timedelta(seconds=15)
+        self.drive(later)
+        self.temps(later, gen=70.0)
+        self.book.observe(None, later)
+        back = later + timedelta(seconds=5)
+        self.drive(back, running=0, status_code=3, frequency_actual_hz=0.0)
+        self.temps(back, gen=80.0, cond=20.0)
+        self.book.observe(None, back)
+        self.assertIsNotNone(self.repo.get_state(None, T_GEN_LOW, TEMP_SOURCE, 3))
+        self.assertEqual(self.repo.runs, 0)
+        self.book.start_check = lambda: True
+        done = back + timedelta(seconds=1)
+        self.drive(done, running=0, status_code=3, frequency_actual_hz=0.0)
+        self.temps(done, gen=80.0, cond=20.0)
+        self.book.observe(None, done)
+        self.assertIsNone(self.repo.get_state(None, T_GEN_LOW, TEMP_SOURCE, 3))
+        self.assertEqual(self.repo.runs, 1)
+
+    def test_generator_stop_uses_the_lower_hysteresis_edge(self):
+
+        self.book.temp_channels = {
+            "t3": {"name": "t_gen_in", "ready_min": 75, "ready_hyst": 2},
+            "t6": {"name": "t_cond_in", "ready_max": 28},
+        }
+        self.drive(NOW)
+        self.temps(NOW, gen=74.0)
+        self.book.observe(None, NOW)
+        later = NOW + timedelta(seconds=20)
+        self.drive(later)
+        self.temps(later, gen=74.0)
+        self.book.observe(None, later)
+        self.assertIsNone(self.repo.get_state(None, T_GEN_LOW, TEMP_SOURCE, 3))
+        self.assertEqual(self.repo.stops, 0)
+        low = later + timedelta(seconds=1)
+        self.drive(low)
+        self.temps(low, gen=72.9)
+        self.book.observe(None, low)
+        due = low + timedelta(seconds=15)
+        self.drive(due)
+        self.temps(due, gen=72.9)
+        self.book.observe(None, due)
+        state = self.repo.get_state(None, T_GEN_LOW, TEMP_SOURCE, 3)
+        self.assertEqual(state["message"], "t_gen_in 72.9 °C below 73")
+        self.assertEqual(self.repo.stops, 1)
+
+    def test_service_run_keeps_a_cold_generator_running(self):
+
+        self.hold_service_run(NOW)
+        self.drive(NOW)
+        self.temps(NOW, gen=70.0)
+        self.book.observe(None, NOW)
+        later = NOW + timedelta(seconds=15)
+        self.hold_service_run(later)
+        self.drive(later)
+        self.temps(later, gen=70.0)
+        self.book.observe(None, later)
+        self.assertEqual(self.repo.get_state(None, T_GEN_LOW, TEMP_SOURCE, 3)["class"], "WARNING")
+        self.assertEqual(self.repo.stops, 0)
+        self.assertTrue(self.repo.recover is None or not int(self.repo.recover["armed"]))
+        self.repo.service = {"value": "0", "updated_ts": later}
+        self.book.observe(None, later)
+        self.assertEqual(self.repo.stops, 1)
+        self.assertEqual(int(self.repo.recover["armed"]), 1)
+
+    def test_missing_temperature_keeps_a_cold_generator_warning(self):
+
+        self.drive(NOW)
+        self.temps(NOW, gen=70.0)
+        self.book.observe(None, NOW)
+        later = NOW + timedelta(seconds=15)
+        self.drive(later)
+        self.temps(later, gen=70.0)
+        self.book.observe(None, later)
+        self.repo.temperature = None
+        self.book.observe(None, later + timedelta(seconds=5))
+        self.assertIsNotNone(self.repo.get_state(None, T_GEN_LOW, TEMP_SOURCE, 3))
+        self.assertIsNone(self.book._gen_low_since)
 
     def test_condenser_stops_a_running_drive_after_the_hold(self):
 
@@ -554,8 +737,9 @@ class TemperatureRecoveryTest(unittest.TestCase):
         self.temps(tripped, gen=70.0)
         self.book.observe(None, tripped)
         self.assertIsNone(self.repo.get_state(None, CAVITATION, "invt_gd20", 100))
+        self.assertEqual(self.repo.get_state(None, T_GEN_LOW, TEMP_SOURCE, 3)["class"], "WARNING")
         self.assertFalse(self.book.blocks(None))
-        self.assertEqual(self.repo.stops, 1)
+        self.assertEqual(self.repo.stops, 2)
         self.assertEqual(int(self.repo.recover["armed"]), 1)
 
     def test_warm_cavitation_still_needs_ack(self):
@@ -682,6 +866,7 @@ class TemperatureRecoveryTest(unittest.TestCase):
         self.temps(tripped, gen=70.0)
         self.book.observe(None, tripped)
         self.assertIsNone(self.repo.get_state(None, CAVITATION, "invt_gd20", 100))
+        self.assertEqual(self.repo.get_state(None, T_GEN_LOW, TEMP_SOURCE, 3)["class"], "WARNING")
         self.assertEqual(self.repo.stops, 0)
         self.assertTrue(self.repo.recover is None or not int(self.repo.recover["armed"]))
 
@@ -719,6 +904,487 @@ class TemperatureRecoveryTest(unittest.TestCase):
         self.book.observe(None, NOW)
         self.assertIsNone(self.repo.get_state(None, T_GEN_LOW, TEMP_SOURCE, 3))
         self.assertIsNone(self.repo.get_state(None, T_COND_HIGH, TEMP_SOURCE, 6))
+
+    def condenser_band(self):
+
+        self.book.temp_channels = {
+            "t3": {"name": "t_gen_in", "ready_min": 75},
+            "t6": {
+                "name": "t_cond_in",
+                "ready_max": 28,
+                "ready_hyst": 1,
+                "ready_max_stable": 30,
+            },
+        }
+
+    def valve(self, ts, steps=0, valid=1, phase="IDLE", online=1):
+
+        self.repo.em2rs = {
+            "device_id": 4,
+            "online": online,
+            "alarm": 0,
+            "alarm_text": None,
+            "actual_position_steps": steps,
+            "position_valid": valid,
+            "motion_phase": phase,
+            "updated_ts": ts,
+        }
+
+    def stopped(self, ts, **overrides):
+
+        defaults = {
+            "running": 0,
+            "status_code": 3,
+            "frequency_actual_hz": 0.0,
+        }
+        defaults.update(overrides)
+        self.drive(ts, **defaults)
+
+    def test_condenser_stop_uses_the_upper_hysteresis_edge(self):
+
+        self.condenser_band()
+        self.drive(NOW)
+        self.temps(NOW, cond=29.0)
+        self.book.observe(None, NOW)
+        later = NOW + timedelta(seconds=20)
+        self.drive(later)
+        self.temps(later, cond=29.0)
+        self.book.observe(None, later)
+        self.assertIsNone(self.repo.get_state(None, T_COND_HIGH, TEMP_SOURCE, 6))
+        self.assertEqual(self.repo.stops, 0)
+        hot = later + timedelta(seconds=1)
+        self.drive(hot)
+        self.temps(hot, cond=29.1)
+        self.book.observe(None, hot)
+        due = hot + timedelta(seconds=15)
+        self.drive(due)
+        self.temps(due, cond=29.1)
+        self.book.observe(None, due)
+        state = self.repo.get_state(None, T_COND_HIGH, TEMP_SOURCE, 6)
+        self.assertEqual(state["message"], "t_cond_in 29.1 °C above 29")
+        self.assertEqual(self.repo.stops, 1)
+        self.assertEqual(int(self.repo.recover["armed"]), 1)
+
+    def test_stable_drive_allows_condenser_up_to_the_stable_edge(self):
+
+        self.condenser_band()
+        self.stable_drive(NOW)
+        self.temps(NOW, cond=30.5)
+        self.book.observe(None, NOW)
+        later = NOW + timedelta(seconds=20)
+        self.stable_drive(later)
+        self.temps(later, cond=30.5)
+        self.book.observe(None, later)
+        self.assertIsNone(self.repo.get_state(None, T_COND_HIGH, TEMP_SOURCE, 6))
+        self.assertEqual(self.repo.stops, 0)
+        edge = later + timedelta(seconds=1)
+        self.stable_drive(edge)
+        self.temps(edge, cond=31.0)
+        self.book.observe(None, edge)
+        held = edge + timedelta(seconds=15)
+        self.stable_drive(held)
+        self.temps(held, cond=31.0)
+        self.book.observe(None, held)
+        self.assertIsNone(self.repo.get_state(None, T_COND_HIGH, TEMP_SOURCE, 6))
+        self.assertEqual(self.repo.stops, 0)
+        hot = held + timedelta(seconds=1)
+        self.stable_drive(hot)
+        self.temps(hot, cond=31.1)
+        self.book.observe(None, hot)
+        due = hot + timedelta(seconds=15)
+        self.stable_drive(due)
+        self.temps(due, cond=31.1)
+        self.book.observe(None, due)
+        state = self.repo.get_state(None, T_COND_HIGH, TEMP_SOURCE, 6)
+        self.assertEqual(state["message"], "t_cond_in 31.1 °C above 31")
+        self.assertEqual(self.repo.stops, 1)
+        self.assertEqual(int(self.repo.recover["armed"]), 1)
+
+    def test_losing_stability_returns_to_the_normal_condenser_stop(self):
+
+        self.condenser_band()
+        self.stable_drive(NOW)
+        self.temps(NOW, cond=30.5)
+        self.book.observe(None, NOW)
+        self.assertEqual(self.repo.stops, 0)
+        lost = NOW + timedelta(seconds=5)
+        self.drive(lost, pid_setpoint_kpa=800.0, pid_feedback_kpa=900.0)
+        self.temps(lost, cond=30.5)
+        self.book.observe(None, lost)
+        due = lost + timedelta(seconds=15)
+        self.drive(due, pid_setpoint_kpa=800.0, pid_feedback_kpa=900.0)
+        self.temps(due, cond=30.5)
+        self.book.observe(None, due)
+        state = self.repo.get_state(None, T_COND_HIGH, TEMP_SOURCE, 6)
+        self.assertEqual(state["message"], "t_cond_in 30.5 °C above 29")
+        self.assertEqual(self.repo.stops, 1)
+
+    def test_condenser_warning_holds_through_the_dead_band(self):
+
+        self.condenser_band()
+        self.drive(NOW)
+        self.temps(NOW, cond=30.0)
+        self.book.observe(None, NOW)
+        later = NOW + timedelta(seconds=15)
+        self.drive(later)
+        self.temps(later, cond=30.0)
+        self.book.observe(None, later)
+        held = later + timedelta(seconds=5)
+        self.stopped(held)
+        self.temps(held, cond=28.0)
+        self.book.observe(None, held)
+        self.assertIsNotNone(self.repo.get_state(None, T_COND_HIGH, TEMP_SOURCE, 6))
+        edge = held + timedelta(seconds=5)
+        self.stopped(edge)
+        self.temps(edge, cond=27.0)
+        self.book.observe(None, edge)
+        self.assertIsNotNone(self.repo.get_state(None, T_COND_HIGH, TEMP_SOURCE, 6))
+        clear = edge + timedelta(seconds=5)
+        self.stopped(clear)
+        self.temps(clear, cond=26.9)
+        self.book.observe(None, clear)
+        self.assertIsNone(self.repo.get_state(None, T_COND_HIGH, TEMP_SOURCE, 6))
+
+    def test_closed_valve_waits_for_a_new_condenser_cycle(self):
+
+        self.condenser_band()
+        self.book.start_check = lambda: True
+        self.repo.recover = {"armed": 1, "updated_ts": NOW - timedelta(seconds=30)}
+        self.drive(NOW)
+        self.temps(NOW, cond=20.0)
+        self.valve(NOW, steps=0)
+        self.book.observe(None, NOW)
+        self.assertEqual(self.repo.stops, 1)
+        self.assertEqual(self.repo.valve_recover["phase"], "break")
+        self.assertEqual(self.repo.valve_recover["updated_ts"], NOW)
+        self.assertEqual(int(self.repo.recover["armed"]), 0)
+        self.assertEqual(self.repo.runs, 0)
+        parked = NOW + timedelta(seconds=5)
+        self.stopped(parked)
+        self.temps(parked, cond=20.0)
+        self.valve(parked, steps=300)
+        self.book.observe(None, parked)
+        self.assertEqual(self.repo.valve_recover["phase"], "break")
+        self.assertEqual(self.repo.runs, 0)
+        near = parked + timedelta(seconds=5)
+        self.stopped(near)
+        self.temps(near, cond=28.0)
+        self.valve(near, steps=300)
+        self.book.observe(None, near)
+        self.assertEqual(self.repo.valve_recover["phase"], "break")
+        self.assertEqual(self.repo.runs, 0)
+        hot = near + timedelta(seconds=5)
+        self.stopped(hot)
+        self.temps(hot, cond=29.1)
+        self.book.observe(None, hot)
+        self.assertEqual(self.repo.valve_recover["phase"], "start")
+        self.assertEqual(self.repo.valve_recover["updated_ts"], NOW)
+        self.assertEqual(self.repo.runs, 0)
+        self.book.start_check = lambda: False
+        held = hot + timedelta(seconds=5)
+        self.stopped(held)
+        self.temps(held, cond=20.0)
+        self.book.observe(None, held)
+        self.assertEqual(self.repo.runs, 0)
+        self.book.start_check = lambda: True
+        go = held + timedelta(seconds=5)
+        self.stopped(go)
+        self.temps(go, cond=20.0)
+        self.book.observe(None, go)
+        self.assertEqual(self.repo.runs, 1)
+        self.assertEqual(self.repo.run_command["source"], "valve")
+
+    def test_closed_valve_does_not_refresh_while_the_stop_is_pending(self):
+
+        self.condenser_band()
+        self.book.start_check = lambda: True
+        self.drive(NOW)
+        self.temps(NOW, cond=20.0)
+        self.valve(NOW, steps=0)
+        self.book.observe(None, NOW)
+        again = NOW + timedelta(seconds=5)
+        self.drive(again)
+        self.temps(again, cond=20.0)
+        self.valve(again, steps=0)
+        self.book.observe(None, again)
+        self.assertEqual(self.repo.stops, 1)
+        self.assertEqual(self.repo.valve_recover["updated_ts"], NOW)
+        self.assertEqual(self.repo.runs, 0)
+
+    def test_running_again_at_zero_starts_a_new_wait(self):
+
+        self.condenser_band()
+        self.repo.valve_recover = {"phase": "start", "updated_ts": NOW}
+        self.repo.run_command = {"value": "1", "source": "hmi", "updated_ts": NOW}
+        later = NOW + timedelta(seconds=10)
+        self.drive(later)
+        self.temps(later, cond=20.0)
+        self.valve(later, steps=0)
+        self.book.observe(None, later)
+        self.assertEqual(self.repo.stops, 1)
+        self.assertEqual(self.repo.valve_recover["phase"], "break")
+        self.assertEqual(self.repo.valve_recover["updated_ts"], later)
+        self.assertEqual(self.repo.runs, 0)
+
+    def test_stopped_or_homing_valve_does_not_arm_recovery(self):
+
+        self.condenser_band()
+        self.stopped(NOW)
+        self.temps(NOW, cond=20.0)
+        self.valve(NOW, steps=0)
+        self.book.observe(None, NOW)
+        self.drive(NOW)
+        self.valve(NOW, steps=0, phase="HOMING_MOVE")
+        self.book.observe(None, NOW)
+        self.valve(NOW, steps=0, valid=0, phase="IDLE")
+        self.book.observe(None, NOW)
+        self.valve(NOW - timedelta(seconds=11), steps=0)
+        self.book.observe(None, NOW)
+        self.assertEqual(self.repo.stops, 0)
+        self.assertIsNone(self.repo.valve_recover)
+
+    def test_service_run_keeps_a_closed_valve_running(self):
+
+        self.condenser_band()
+        self.repo.valve_recover = {"phase": "break", "updated_ts": NOW}
+        self.hold_service_run(NOW)
+        self.drive(NOW)
+        self.temps(NOW, cond=20.0)
+        self.valve(NOW, steps=0)
+        self.book.observe(None, NOW)
+        self.assertEqual(self.repo.stops, 0)
+        self.assertIsNone(self.repo.valve_recover)
+
+    def test_closed_stop_percent_na_does_not_stop(self):
+
+        self.book = AlarmBook(
+            self.repo,
+            temperature={
+                "enabled": True,
+                "stop_hold_s": 15,
+                "channels": CHANNELS,
+            },
+            valve={"closed_stop_percent": "na", "full_travel_steps": 600},
+        )
+        self.condenser_band()
+        self.drive(NOW)
+        self.temps(NOW, cond=20.0)
+        self.valve(NOW, steps=0)
+        self.book.observe(None, NOW)
+        self.assertEqual(self.repo.stops, 0)
+        self.assertIsNone(self.repo.valve_recover)
+
+    def test_closed_stop_percent_stops_at_or_below_the_limit(self):
+
+        self.book = AlarmBook(
+            self.repo,
+            temperature={
+                "enabled": True,
+                "stop_hold_s": 15,
+                "channels": CHANNELS,
+            },
+            valve={"closed_stop_percent": 0.1, "full_travel_steps": 600},
+        )
+        self.book.start_check = lambda: True
+        self.condenser_band()
+        self.drive(NOW)
+        self.temps(NOW, cond=20.0)
+        self.valve(NOW, steps=1)
+        self.book.observe(None, NOW)
+        self.assertEqual(self.repo.stops, 1)
+        self.assertEqual(self.repo.valve_recover["phase"], "break")
+        open_enough = NOW + timedelta(seconds=5)
+        self.drive(open_enough)
+        self.temps(open_enough, cond=20.0)
+        self.valve(open_enough, steps=2)
+        self.book.observe(None, open_enough)
+        self.assertEqual(self.repo.stops, 1)
+
+    def test_operator_stop_cancels_valve_recovery(self):
+
+        self.condenser_band()
+        self.book.start_check = lambda: True
+        self.repo.valve_recover = {"phase": "start", "updated_ts": NOW}
+        later = NOW + timedelta(seconds=5)
+        self.repo.run_command = {"value": "0", "source": "hmi", "updated_ts": later}
+        self.stopped(later)
+        self.temps(later, cond=20.0)
+        self.book.observe(None, later)
+        self.assertIsNone(self.repo.valve_recover)
+        self.assertEqual(self.repo.runs, 0)
+
+    def test_external_stop_and_fault_cancel_valve_recovery(self):
+
+        self.condenser_band()
+        self.book.start_check = lambda: True
+        self.repo.valve_recover = {"phase": "start", "updated_ts": NOW}
+        self.stopped(NOW, external_stop=1)
+        self.temps(NOW, cond=20.0)
+        self.book.observe(None, NOW)
+        self.assertIsNone(self.repo.valve_recover)
+        self.assertEqual(self.repo.runs, 0)
+        self.repo.valve_recover = {"phase": "start", "updated_ts": NOW}
+        self.stopped(NOW, status_code=4, fault_code=37)
+        self.book.observe(None, NOW)
+        self.assertIsNone(self.repo.valve_recover)
+        self.assertEqual(self.repo.runs, 0)
+
+    def test_blocking_alarm_holds_the_valve_restart(self):
+
+        self.condenser_band()
+        self.book.start_check = lambda: True
+        self.repo.valve_recover = {"phase": "start", "updated_ts": NOW}
+        self.repo.save_state(None, {
+            "code": "TEST_BLOCK",
+            "source": "test",
+            "device_id": 1,
+            "inhibit_run": 1,
+            "condition_on": 1,
+            "ack_ts": None,
+            "class": "ALARM",
+            "latched": 1,
+        })
+        self.stopped(NOW)
+        self.temps(NOW, cond=20.0)
+        self.book.observe(None, NOW)
+        self.assertEqual(self.repo.valve_recover["phase"], "start")
+        self.assertEqual(self.repo.runs, 0)
+
+    def test_manual_run_clears_valve_recovery(self):
+
+        self.condenser_band()
+        self.book.start_check = lambda: True
+        self.repo.valve_recover = {"phase": "break", "updated_ts": NOW}
+        self.repo.run_command = {"value": "1", "source": "hmi", "updated_ts": NOW}
+        self.drive(NOW)
+        self.temps(NOW, cond=20.0)
+        self.valve(NOW, steps=300)
+        self.book.observe(None, NOW)
+        self.assertIsNone(self.repo.valve_recover)
+        self.assertEqual(self.repo.stops, 0)
+        self.assertEqual(self.repo.runs, 0)
+
+    def evaporator_limits(self, hyst=1):
+
+        self.book.temp_channels = {
+            "t1": {"name": "t_evap_in", "ready_min": 18, "ready_hyst": hyst},
+            "t3": {"name": "t_gen_in", "ready_min": 75},
+            "t6": {"name": "t_cond_in", "ready_max": 28},
+        }
+
+    def test_cold_evaporator_stops_below_the_hysteresis_edge(self):
+
+        self.evaporator_limits()
+        self.drive(NOW)
+        self.temps(NOW, evap=17.0)
+        self.book.observe(None, NOW)
+        later = NOW + timedelta(seconds=20)
+        self.drive(later)
+        self.temps(later, evap=17.0)
+        self.book.observe(None, later)
+        self.assertIsNone(self.repo.get_state(None, T_EVAP_LOW, TEMP_SOURCE, 1))
+        self.assertEqual(self.repo.stops, 0)
+        low = later + timedelta(seconds=1)
+        self.drive(low)
+        self.temps(low, evap=16.9)
+        self.book.observe(None, low)
+        due = low + timedelta(seconds=15)
+        self.drive(due)
+        self.temps(due, evap=16.9)
+        self.book.observe(None, due)
+        state = self.repo.get_state(None, T_EVAP_LOW, TEMP_SOURCE, 1)
+        self.assertEqual(state["message"], "t_evap_in 16.9 °C below 17")
+        self.assertEqual(state["inhibit_run"], 0)
+        self.assertEqual(self.repo.stops, 1)
+        self.assertEqual(int(self.repo.recover["armed"]), 1)
+
+    def test_evaporator_band_holds_the_previous_side(self):
+
+        self.evaporator_limits()
+        self.drive(NOW)
+        self.temps(NOW, evap=25.0)
+        self.book.observe(None, NOW)
+        held = NOW + timedelta(seconds=20)
+        self.drive(held)
+        self.temps(held, evap=17.0)
+        self.book.observe(None, held)
+        self.assertEqual(self.repo.stops, 0)
+        self.drive(NOW)
+        self.temps(NOW, evap=16.0)
+        self.book.observe(None, NOW)
+        due = NOW + timedelta(seconds=15)
+        self.drive(due)
+        self.temps(due, evap=16.0)
+        self.book.observe(None, due)
+        band = due + timedelta(seconds=5)
+        self.stopped(band)
+        self.temps(band, evap=19.0)
+        self.book.observe(None, band)
+        self.assertIsNotNone(self.repo.get_state(None, T_EVAP_LOW, TEMP_SOURCE, 1))
+        self.assertEqual(self.repo.runs, 0)
+
+    def test_evaporator_recovery_waits_for_the_upper_edge(self):
+
+        self.evaporator_limits()
+        self.book.start_check = lambda: True
+        self.drive(NOW)
+        self.temps(NOW, evap=16.0)
+        self.book.observe(None, NOW)
+        due = NOW + timedelta(seconds=15)
+        self.drive(due)
+        self.temps(due, evap=16.0)
+        self.book.observe(None, due)
+        early = due + timedelta(seconds=5)
+        self.stopped(early)
+        self.temps(early, evap=19.1)
+        self.book.observe(None, early)
+        self.assertIsNone(self.repo.get_state(None, T_EVAP_LOW, TEMP_SOURCE, 1))
+        self.assertEqual(self.repo.runs, 0)
+        missing = early + timedelta(seconds=120)
+        self.stopped(missing)
+        self.temps(missing, evap=None)
+        self.book.observe(None, missing)
+        self.assertEqual(self.repo.runs, 0)
+        ready = missing + timedelta(seconds=5)
+        self.stopped(ready)
+        self.temps(ready, evap=19.1)
+        self.book.observe(None, ready)
+        done = ready + timedelta(seconds=120)
+        self.stopped(done)
+        self.temps(done, evap=18.5)
+        self.book.observe(None, done)
+        self.assertEqual(self.repo.runs, 1)
+
+    def test_service_run_keeps_a_cold_evaporator_running(self):
+
+        self.evaporator_limits()
+        self.hold_service_run(NOW)
+        self.drive(NOW)
+        self.temps(NOW, evap=16.0)
+        self.book.observe(None, NOW)
+        later = NOW + timedelta(seconds=15)
+        self.hold_service_run(later)
+        self.drive(later)
+        self.temps(later, evap=16.0)
+        self.book.observe(None, later)
+        self.assertEqual(self.repo.get_state(None, T_EVAP_LOW, TEMP_SOURCE, 1)["class"], "WARNING")
+        self.assertEqual(self.repo.stops, 0)
+        self.assertTrue(self.repo.recover is None or not int(self.repo.recover["armed"]))
+
+    def test_manual_stop_cancels_evaporator_recovery(self):
+
+        self.evaporator_limits()
+        self.book.start_check = lambda: True
+        self.book._evap_side = "ok"
+        self.book._evap_ok_since = NOW - timedelta(seconds=120)
+        self.repo.recover = {"armed": 1, "updated_ts": NOW}
+        later = NOW + timedelta(seconds=5)
+        self.repo.run_command = {"value": "0", "source": "hmi", "updated_ts": later}
+        self.stopped(later)
+        self.temps(later, evap=25.0)
+        self.book.observe(None, later)
+        self.assertEqual(int(self.repo.recover["armed"]), 0)
+        self.assertEqual(self.repo.runs, 0)
 
 
 if __name__ == "__main__":

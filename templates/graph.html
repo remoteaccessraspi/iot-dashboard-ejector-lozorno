@@ -6,7 +6,7 @@
 <meta charset="utf-8">
 <title>IOT HMI - Graph</title>
 
-<link rel="stylesheet" href="{{ request.url_for('static', path='css/style.css') }}?v=hmi-close-btn">
+<link rel="stylesheet" href="{{ request.url_for('static', path='css/style.css') }}?v=graph-warn">
 
 <!-- Chart.js -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1"></script>
@@ -69,7 +69,7 @@
 
 </head>
 
-<body>
+<body class="graph-page">
 
 {% include "header.html" %}
 
@@ -188,6 +188,8 @@ LIVE
 </div>
 
 </div>
+
+<div id="warnBar" class="alarm-bar" hidden></div>
 
 <!-- Graph logic -->
 <script src="{{ request.url_for('static', path='js/graph.js') }}?v=axis-row"></script>

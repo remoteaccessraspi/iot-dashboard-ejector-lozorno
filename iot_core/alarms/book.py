@@ -7,7 +7,12 @@ from iot_core.core.config import load_config
 from iot_core.service_mode import RUN_SOURCE, service_is_fresh
 from iot_core.ready import (
     READY_MAX_AGE_S,
+    channel_hyst,
+    condenser_below_start,
     condenser_high,
+    condenser_stop_center,
+    evaporator_band,
+    generator_below_stop,
     generator_cold,
     start_allowed,
     temperature_channel,
@@ -20,12 +25,13 @@ EM2RS_FAULT = "EM2RS_FAULT"
 CAVITATION = "CAVITATION"
 T_GEN_LOW = "T_GEN_LOW"
 T_COND_HIGH = "T_COND_HIGH"
+T_EVAP_LOW = "T_EVAP_LOW"
 TEMP_SOURCE = "ck_3083es"
 LOOP_RANGE = "LOOP_RANGE"
 LOOP_SOURCE = "ck_7082e"
-# 0x3000 má krok 0.01 Hz. Strop 50.00 Hz preto berieme od 49.98 Hz.
+# 0x3000 má krok 0.01 Hz. Strop berieme o 0,02 Hz skôr, aby sedel posledný krok.
 _LIMIT_TOLERANCE_HZ = 0.02
-# Po reštarte mastera sa „slučka už bola v poriadku“ dohľadá v histórii.
+# Predvolené hodnoty. Živé čísla sú v common.yaml, alarms.cavitation_*.
 _ARM_LOOKBACK_S = 3 * 3600
 _SAMPLE_MAX_AGE_S = 15
 
@@ -55,6 +61,40 @@ def _details(value):
     return json.dumps(value, ensure_ascii=False)
 
 
+def closed_stop_limit_steps(raw, full_travel_steps=600):
+
+    # 0 % = ventil úplne zatvorený. "na" prah vypne. Chýbajúca hodnota je 0.
+    full = int(full_travel_steps or 600)
+
+    def _to_steps(percent):
+
+        steps = int(round(float(percent) * full / 100.0))
+        if steps < 0:
+            return 0
+        if steps > full:
+            return full
+        return steps
+
+    if raw is None or raw == "":
+        return _to_steps(0)
+
+    if isinstance(raw, str) and raw.strip().lower() == "na":
+        return None
+
+    try:
+        percent = float(raw)
+    except (TypeError, ValueError):
+        return _to_steps(0)
+
+    if percent < 0:
+        percent = 0.0
+
+    if percent > 100:
+        percent = 100.0
+
+    return _to_steps(percent)
+
+
 class AlarmBook:
 
     def __init__(
@@ -65,8 +105,14 @@ class AlarmBook:
         loop_high=21.0,
         channels=(6, 7, 8),
         loop_max_age_s=10,
+        ready_max_age_s=READY_MAX_AGE_S,
+        cavitation_max_age_s=_SAMPLE_MAX_AGE_S,
+        cavitation_arm_lookback_s=_ARM_LOOKBACK_S,
         cavitation=None,
         temperature=None,
+        valve=None,
+        invt_tolerance_kpa=50,
+        invt_stability_max_age_s=10,
         notifier=None,
         service_idle_s=30 * 60,
     ):
@@ -77,19 +123,36 @@ class AlarmBook:
         self.loop_high = float(loop_high)
         self.channels = tuple(int(channel) for channel in channels)
         self.loop_max_age_s = float(loop_max_age_s)
+        self.ready_max_age_s = float(ready_max_age_s)
+        self.cavitation_max_age_s = float(cavitation_max_age_s)
+        self.cavitation_arm_lookback_s = float(cavitation_arm_lookback_s)
         spec = cavitation or {}
         self.cavitation_enabled = bool(spec.get("enabled", cavitation is not None))
+        # Predvolené hodnoty sú rovnaké ako v invt_gd20.yaml. Master posiela YAML.
         self.cavitation_min_kpa = float(spec.get("min_kpa", 750))
-        self.cavitation_confirm_s = float(spec.get("confirm_s", 30))
-        self.cavitation_limit_hz = float(spec.get("frequency_limit_hz", 50))
+        self.cavitation_confirm_s = float(spec.get("confirm_s", 10))
+        self.cavitation_limit_hz = float(spec.get("frequency_limit_hz", 45))
         self._cavitation_armed = False
         self._cavitation_below_since = None
         temp = temperature or {}
         self.temp_enabled = bool(temp.get("enabled", temperature is not None))
         self.temp_stop_hold_s = float(temp.get("stop_hold_s", 15))
+        self.temp_start_hold_s = float(temp.get("start_hold_s", 120))
         self.temp_channels = temp.get("channels") or {}
         self._temp_values = None
+        self._gen_low_since = None
         self._cond_high_since = None
+        self._evap_side = None
+        self._evap_low_since = None
+        self._evap_ok_since = None
+        # 0 % = ventil úplne zatvorený. closed_stop_percent "na" prah vypne.
+        valve_cfg = valve or {}
+        self.closed_stop_steps = closed_stop_limit_steps(
+            valve_cfg.get("closed_stop_percent", 0),
+            valve_cfg.get("full_travel_steps", 600),
+        )
+        self.invt_tolerance_kpa = float(invt_tolerance_kpa)
+        self.invt_stability_max_age_s = float(invt_stability_max_age_s)
         self.service_idle_s = float(service_idle_s)
         self._service_bypass = False
         self.start_check = None
@@ -203,10 +266,13 @@ class AlarmBook:
         self._service_bypass = self._service_run_holds(conn, now)
         if self._service_bypass:
             self.repo.clear_temp_recover(conn)
+            self.repo.clear_valve_recover(conn)
         self._load_temperatures(conn, now)
         self._observe_cavitation(conn, gd20, now)
         self._observe_temperatures(conn, gd20, now)
+        self._observe_valve_closed(conn, gd20, now)
         self._recover_temperature(conn, gd20, now)
+        self._recover_valve(conn, gd20, now)
 
         running = None
 
@@ -270,7 +336,7 @@ class AlarmBook:
 
         age = (now - updated).total_seconds()
 
-        if age < 0 or age > _SAMPLE_MAX_AGE_S:
+        if age < 0 or age > self.cavitation_max_age_s:
             return
 
         device_id = int(gd20.get("device_id") or 0)
@@ -304,7 +370,7 @@ class AlarmBook:
         if not self._cavitation_armed:
             if not at_limit:
                 return
-            since = now - timedelta(seconds=_ARM_LOOKBACK_S)
+            since = now - timedelta(seconds=self.cavitation_arm_lookback_s)
             if not self.repo.gd20_reached_kpa(conn, device_id, self.cavitation_min_kpa, since):
                 return
             self._cavitation_armed = True
@@ -387,7 +453,7 @@ class AlarmBook:
         except (TypeError, AttributeError):
             return
 
-        if age < 0 or age > READY_MAX_AGE_S:
+        if age < 0 or age > self.ready_max_age_s:
             return
 
         self._temp_values = [row.get(f"t{index}") for index in range(1, 9)]
@@ -405,38 +471,21 @@ class AlarmBook:
             return
 
         if self._temp_values is None:
+            self._gen_low_since = None
             self._cond_high_since = None
-            self._clear(conn, T_GEN_LOW, TEMP_SOURCE, self._temp_device("t_gen_in"), now)
+            self._evap_low_since = None
+            self._evap_ok_since = None
             self._clear(conn, T_COND_HIGH, TEMP_SOURCE, self._temp_device("t_cond_in"), now)
             return
 
         gen_id = self._temp_device("t_gen_in")
         cond_id = self._temp_device("t_cond_in")
+        self._observe_generator(conn, gd20, gen_id, now)
+        self._observe_evaporator(conn, gd20, now)
 
-        if generator_cold(self.temp_channels, self._temp_values):
-            _, channel = temperature_channel(self.temp_channels, "t_gen_in")
-            value = self._temp_values[gen_id - 1]
-            self._raise(
-                conn,
-                {
-                    "code": T_GEN_LOW,
-                    "source": TEMP_SOURCE,
-                    "device_id": gen_id,
-                    "class": "WARNING",
-                    "message": (
-                        f"t_gen_in {float(value):.1f} °C below {float(channel['ready_min']):g}"
-                    ),
-                    "details": {"celsius": round(float(value), 1)},
-                    "latched": 0,
-                    "inhibit_run": 0,
-                    "release_policy": "NONE",
-                },
-                now,
-            )
-        else:
-            self._clear(conn, T_GEN_LOW, TEMP_SOURCE, gen_id, now)
+        stable = self._gd20_pressure_stable(gd20, now)
 
-        if condenser_high(self.temp_channels, self._temp_values):
+        if condenser_high(self.temp_channels, self._temp_values, stable=stable):
             if self._cond_high_since is None:
                 self._cond_high_since = now
             held = (now - self._cond_high_since).total_seconds()
@@ -444,6 +493,8 @@ class AlarmBook:
                 return
             _, channel = temperature_channel(self.temp_channels, "t_cond_in")
             value = self._temp_values[cond_id - 1]
+            center = condenser_stop_center(channel, stable)
+            limit = float(center) + channel_hyst(channel)
             self._raise(
                 conn,
                 {
@@ -452,7 +503,7 @@ class AlarmBook:
                     "device_id": cond_id,
                     "class": "WARNING",
                     "message": (
-                        f"t_cond_in {float(value):.1f} °C above {float(channel['ready_max']):g}"
+                        f"t_cond_in {float(value):.1f} °C above {limit:g}"
                     ),
                     "details": {"celsius": round(float(value), 1)},
                     "latched": 0,
@@ -465,7 +516,192 @@ class AlarmBook:
             return
 
         self._cond_high_since = None
-        self._clear(conn, T_COND_HIGH, TEMP_SOURCE, cond_id, now)
+        if condenser_below_start(self.temp_channels, self._temp_values):
+            self._clear(conn, T_COND_HIGH, TEMP_SOURCE, cond_id, now)
+
+    def _observe_generator(self, conn, gd20, gen_id, now):
+
+        if generator_below_stop(self.temp_channels, self._temp_values):
+            if self._gen_low_since is None:
+                self._gen_low_since = now
+            held = (now - self._gen_low_since).total_seconds()
+            if held < self.temp_stop_hold_s:
+                return
+            _, channel = temperature_channel(self.temp_channels, "t_gen_in")
+            value = self._temp_values[gen_id - 1]
+            limit = float(channel["ready_min"]) - channel_hyst(channel)
+            self._raise(
+                conn,
+                {
+                    "code": T_GEN_LOW,
+                    "source": TEMP_SOURCE,
+                    "device_id": gen_id,
+                    "class": "WARNING",
+                    "message": (
+                        f"t_gen_in {float(value):.1f} °C below {limit:g}"
+                    ),
+                    "details": {"celsius": round(float(value), 1)},
+                    "latched": 0,
+                    "inhibit_run": 0,
+                    "release_policy": "NONE",
+                },
+                now,
+            )
+            self._stop_for_generator(conn, gd20, now)
+            return
+
+        self._gen_low_since = None
+        if self.repo.get_state(conn, T_GEN_LOW, TEMP_SOURCE, gen_id) is None:
+            return
+        try:
+            allowed = self._start_permitted(conn, now)
+        except Exception as e:
+            print("t_gen_in warning:", e)
+            return
+        if allowed:
+            self._clear(conn, T_GEN_LOW, TEMP_SOURCE, gen_id, now)
+
+    def _stop_for_generator(self, conn, gd20, now):
+
+        if self._service_bypass:
+            return
+
+        if not gd20 or not int(gd20.get("online") or 0):
+            return
+
+        if not int(gd20.get("running") or 0):
+            return
+
+        if int(gd20.get("external_stop") or 0):
+            return
+
+        if drive_fault(gd20.get("status_code"), gd20.get("fault_code")):
+            return
+
+        if self.repo.get_state(conn, CAVITATION, "invt_gd20", int(gd20.get("device_id") or 0)) is None:
+            if self.repo.arm_temp_recover(conn, now):
+                print("t_gen_in low, STOP, temperature recovery")
+
+        self.repo.request_gd20_stop(conn)
+
+    def _observe_evaporator(self, conn, gd20, now):
+
+        channel, band = evaporator_band(self.temp_channels, self._temp_values)
+
+        if channel is None:
+            return
+
+        evap_id = self._temp_device("t_evap_in")
+
+        if band is None:
+            self._evap_low_since = None
+            self._evap_ok_since = None
+            return
+
+        raw = band
+
+        if band == "hold":
+            band = self._evap_side
+
+        if band == "low":
+            self._evap_side = "low"
+            self._evap_ok_since = None
+            if self._evap_low_since is None:
+                self._evap_low_since = now
+            held = (now - self._evap_low_since).total_seconds()
+            if held < self.temp_stop_hold_s:
+                return
+            limit = float(channel["ready_min"]) - channel_hyst(channel)
+            if raw == "low":
+                value = self._temp_values[evap_id - 1]
+                message = f"t_evap_in {float(value):.1f} °C below {limit:g}"
+                details = {"celsius": round(float(value), 1)}
+            elif self.repo.get_state(conn, T_EVAP_LOW, TEMP_SOURCE, evap_id) is None:
+                message = f"t_evap_in held below {limit:g}"
+                details = None
+            else:
+                message = None
+            if message is not None:
+                self._raise(
+                    conn,
+                    {
+                        "code": T_EVAP_LOW,
+                        "source": TEMP_SOURCE,
+                        "device_id": evap_id,
+                        "class": "WARNING",
+                        "message": message,
+                        "details": details,
+                        "latched": 0,
+                        "inhibit_run": 0,
+                        "release_policy": "NONE",
+                    },
+                    now,
+                )
+            self._stop_for_evaporator(conn, gd20, now)
+            return
+
+        if band == "ok":
+            first_ok = self._evap_side is None
+            from_low = self._evap_side == "low"
+            self._evap_side = "ok"
+            self._evap_low_since = None
+            if self._evap_ok_since is None:
+                if first_ok and not from_low:
+                    self._evap_ok_since = now - timedelta(seconds=self.temp_start_hold_s)
+                else:
+                    self._evap_ok_since = now
+            self._clear(conn, T_EVAP_LOW, TEMP_SOURCE, evap_id, now)
+            return
+
+        self._evap_low_since = None
+        self._evap_ok_since = None
+
+    def _stop_for_evaporator(self, conn, gd20, now):
+
+        if self._service_bypass:
+            return
+
+        if not gd20 or not int(gd20.get("online") or 0):
+            return
+
+        if not int(gd20.get("running") or 0):
+            return
+
+        if int(gd20.get("external_stop") or 0):
+            return
+
+        if drive_fault(gd20.get("status_code"), gd20.get("fault_code")):
+            return
+
+        if self.repo.get_state(conn, CAVITATION, "invt_gd20", int(gd20.get("device_id") or 0)) is None:
+            if self.repo.arm_temp_recover(conn, now):
+                print("t_evap_in low, STOP, temperature recovery")
+
+        self.repo.request_gd20_stop(conn)
+
+    def _evaporator_blocks_auto_start(self, now):
+
+        _index, configured = temperature_channel(self.temp_channels, "t_evap_in")
+
+        if not isinstance(configured, dict) or configured.get("ready_min") is None:
+            return False
+
+        if self._temp_values is None:
+            return True
+
+        channel, band = evaporator_band(self.temp_channels, self._temp_values)
+
+        if channel is None or band is None:
+            return True
+
+        if self._evap_side == "low":
+            return True
+
+        if self._evap_side != "ok" or self._evap_ok_since is None:
+            return False
+
+        held = (now - self._evap_ok_since).total_seconds()
+        return held < self.temp_start_hold_s
 
     def _temp_device(self, name):
 
@@ -556,6 +792,9 @@ class AlarmBook:
         if not allowed:
             return
 
+        if self._evaporator_blocks_auto_start(now):
+            return
+
         self.repo.request_gd20_run(conn)
         print("GD20 RUN temperature recovery")
 
@@ -592,6 +831,168 @@ class AlarmBook:
             return bool(self.start_check())
 
         return start_allowed(conn, load_config(), now)
+
+    def _auto_stop_blocked(self, gd20):
+
+        if not gd20 or not int(gd20.get("online") or 0):
+            return True
+
+        if not int(gd20.get("running") or 0):
+            return True
+
+        if int(gd20.get("external_stop") or 0):
+            return True
+
+        if drive_fault(gd20.get("status_code"), gd20.get("fault_code")):
+            return True
+
+        return False
+
+    def _gd20_pressure_stable(self, gd20, now):
+
+        # To isté pásmo ako trim ventilu: beh, online, čerstvá vzorka, |fb−sp| ≤ tolerancia.
+        if self._service_bypass or not gd20 or not int(gd20.get("online") or 0):
+            return False
+
+        if not int(gd20.get("running") or 0):
+            return False
+
+        updated = gd20.get("updated_ts")
+
+        if updated is None:
+            return False
+
+        try:
+            age = (now - updated).total_seconds()
+        except (TypeError, AttributeError):
+            return False
+
+        if age < 0 or age > self.invt_stability_max_age_s:
+            return False
+
+        setpoint = gd20.get("pid_setpoint_kpa")
+        feedback = gd20.get("pid_feedback_kpa")
+
+        if setpoint is None or feedback is None:
+            return False
+
+        try:
+            return abs(float(feedback) - float(setpoint)) <= self.invt_tolerance_kpa
+        except (TypeError, ValueError):
+            return False
+
+    def _valve_closed(self, em2rs, now):
+
+        if self.closed_stop_steps is None:
+            return False
+
+        if not em2rs or not int(em2rs.get("online") or 0):
+            return False
+
+        if not int(em2rs.get("position_valid") or 0):
+            return False
+
+        if str(em2rs.get("motion_phase") or "").startswith("HOMING"):
+            return False
+
+        updated = em2rs.get("updated_ts")
+
+        if updated is None:
+            return False
+
+        try:
+            age = (now - updated).total_seconds()
+        except (TypeError, AttributeError):
+            return False
+
+        if age < 0 or age > self.ready_max_age_s:
+            return False
+
+        steps = em2rs.get("actual_position_steps")
+
+        if steps is None:
+            return False
+
+        try:
+            return int(steps) <= int(self.closed_stop_steps)
+        except (TypeError, ValueError):
+            return False
+
+    def _observe_valve_closed(self, conn, gd20, now):
+
+        if self._service_bypass or not self.temp_enabled:
+            return
+
+        if self.closed_stop_steps is None:
+            return
+
+        if not self._valve_closed(self.repo.read_em2rs(conn), now):
+            return
+
+        if self._auto_stop_blocked(gd20):
+            return
+
+        recover = self.repo.read_valve_recover(conn)
+        command = self.repo.read_run_command(conn)
+        waiting = recover and recover.get("phase") in ("break", "start")
+        commanded_run = command is not None and str(command.get("value")) == "1"
+
+        if waiting and not commanded_run:
+            return
+
+        self.repo.clear_temp_recover(conn)
+        self.repo.arm_valve_recover(conn, now)
+        self.repo.request_gd20_stop(conn)
+        print("expansion valve closed stop, STOP, waiting for t_cond_in")
+
+    def _recover_valve(self, conn, gd20, now):
+
+        if self._service_bypass or not self.temp_enabled:
+            return
+
+        recover = self.repo.read_valve_recover(conn)
+
+        if not recover or recover.get("phase") not in ("break", "start"):
+            return
+
+        if self._cancel_temp_recover(conn, gd20, recover):
+            self.repo.clear_valve_recover(conn)
+            return
+
+        if not gd20 or not int(gd20.get("online") or 0):
+            return
+
+        if int(gd20.get("running") or 0):
+            command = self.repo.read_run_command(conn)
+            if command and str(command.get("value")) == "1":
+                self.repo.clear_valve_recover(conn)
+            return
+
+        if recover["phase"] == "break":
+            if self._temp_values is not None and condenser_high(
+                self.temp_channels,
+                self._temp_values,
+            ):
+                self.repo.mark_valve_recover_start(conn, recover.get("updated_ts"))
+            return
+
+        if self.repo.any_blocking(conn):
+            return
+
+        try:
+            allowed = self._start_permitted(conn, now)
+        except Exception as e:
+            print("valve recovery:", e)
+            return
+
+        if not allowed:
+            return
+
+        if self._evaporator_blocks_auto_start(now):
+            return
+
+        self.repo.request_gd20_run(conn, "valve")
+        print("GD20 RUN valve recovery")
 
     def acknowledge(self, conn, code, source, device_id, now, ack_source="hmi"):
 
@@ -919,7 +1320,8 @@ class SqlRepo:
             cur.execute(
                 """
                 SELECT device_id, online, running, status_code, fault_code,
-                       external_stop, ai2_kpa, frequency_actual_hz, updated_ts
+                       external_stop, ai2_kpa, frequency_actual_hz, updated_ts,
+                       pid_setpoint_kpa, pid_feedback_kpa
                 FROM invt_gd20_state
                 ORDER BY device_id
                 LIMIT 1
@@ -1030,20 +1432,75 @@ class SqlRepo:
                 """
             )
 
-    def request_gd20_run(self, conn):
+    def read_valve_recover(self, conn):
+
+        with self._cursor(conn) as cur:
+            cur.execute(
+                """
+                SELECT value, updated_ts
+                FROM control_state
+                WHERE parameter = 'gd20_valve_recover'
+                """
+            )
+            row = cur.fetchone()
+
+        if row is None or str(row["value"]) not in ("break", "start"):
+            return None
+
+        return {"phase": str(row["value"]), "updated_ts": row["updated_ts"]}
+
+    def arm_valve_recover(self, conn, now):
+
+        with self._cursor(conn) as cur:
+            cur.execute(
+                """
+                REPLACE INTO control_state (parameter, value, source, updated_ts)
+                VALUES ('gd20_valve_recover', 'break', 'valve', %s)
+                """,
+                (now,),
+            )
+
+    def mark_valve_recover_start(self, conn, armed_ts):
+
+        with self._cursor(conn) as cur:
+            cur.execute(
+                """
+                UPDATE control_state
+                SET value = 'start', source = 'valve', updated_ts = %s
+                WHERE parameter = 'gd20_valve_recover'
+                """,
+                (armed_ts,),
+            )
+
+    def clear_valve_recover(self, conn):
+
+        if self.read_valve_recover(conn) is None:
+            return
+
+        with self._cursor(conn) as cur:
+            cur.execute(
+                """
+                REPLACE INTO control_state (parameter, value, source)
+                VALUES ('gd20_valve_recover', '0', 'valve')
+                """
+            )
+
+    def request_gd20_run(self, conn, source="temperature"):
 
         with self._cursor(conn) as cur:
             cur.execute(
                 """
                 INSERT INTO control (parameter, value, source)
-                VALUES ('gd20_run', '1', 'temperature')
-                """
+                VALUES ('gd20_run', '1', %s)
+                """,
+                (source,),
             )
             cur.execute(
                 """
                 REPLACE INTO control_state (parameter, value, source)
-                VALUES ('gd20_run', '1', 'temperature')
-                """
+                VALUES ('gd20_run', '1', %s)
+                """,
+                (source,),
             )
 
     def request_gd20_stop(self, conn):
@@ -1067,7 +1524,8 @@ class SqlRepo:
         with self._cursor(conn) as cur:
             cur.execute(
                 """
-                SELECT device_id, online, alarm, alarm_text
+                SELECT device_id, online, alarm, alarm_text,
+                       actual_position_steps, position_valid, motion_phase, updated_ts
                 FROM em2rs_556_state
                 ORDER BY device_id
                 LIMIT 1

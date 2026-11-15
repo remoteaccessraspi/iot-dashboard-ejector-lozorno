@@ -706,6 +706,12 @@ async def gd20_command(request: Request):
                         VALUES ('gd20_temp_recover', '0', 'service')
                         """
                     )
+                    cur.execute(
+                        """
+                        REPLACE INTO control_state (parameter, value, source)
+                        VALUES ('gd20_valve_recover', '0', 'service')
+                        """
+                    )
 
             cur.execute(
                 """

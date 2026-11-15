@@ -614,6 +614,18 @@ button:disabled {
   margin: 16px 0 0;
 }
 
+.graph-page {
+  min-height: calc(100vh - 40px);
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+}
+
+.graph-page > .alarm-bar {
+  margin-top: auto;
+  margin-bottom: 0;
+}
+
 .alarm-bar[hidden] {
   display: none;
 }

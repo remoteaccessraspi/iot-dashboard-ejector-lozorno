@@ -32,6 +32,10 @@ def alarm_book(cfg):
 
     alarms = cfg.get("alarms") or {}
     channels = alarms.get("loop_channels") or (6, 7, 8)
+    gd20_cfg = cfg.get("invt_gd20") or {}
+    em2rs_cfg = cfg.get("em2rs_556") or {}
+    trim = ((em2rs_cfg.get("valve") or {}).get("p7_trim") or {})
+    stability = gd20_cfg.get("stability") or {}
 
     return AlarmBook(
         SqlRepo(),
@@ -40,13 +44,20 @@ def alarm_book(cfg):
         loop_high=float(alarms.get("loop_high_ma", 21.0)),
         channels=tuple(int(channel) for channel in channels),
         loop_max_age_s=float(alarms.get("loop_max_age_s", 10)),
-        cavitation=(cfg.get("invt_gd20") or {}).get("cavitation"),
+        ready_max_age_s=float(alarms.get("ready_max_age_s", 10)),
+        cavitation_max_age_s=float(alarms.get("cavitation_max_age_s", 15)),
+        cavitation_arm_lookback_s=float(alarms.get("cavitation_arm_lookback_s", 3 * 3600)),
+        cavitation=gd20_cfg.get("cavitation"),
         notifier=schedule_alarm_mail,
         temperature={
             "enabled": True,
             "stop_hold_s": ((cfg.get("ck_3083es_8ch") or {}).get("start") or {}).get("stop_hold_s", 15),
+            "start_hold_s": ((cfg.get("ck_3083es_8ch") or {}).get("start") or {}).get("hold_s", 120),
             "channels": cfg.get("channels") or {},
         },
+        valve=em2rs_cfg.get("valve"),
+        invt_tolerance_kpa=float(trim.get("invt_tolerance_kpa", 50)),
+        invt_stability_max_age_s=float(stability.get("max_age_s", 10)),
         service_idle_s=idle_seconds((cfg.get("hmi") or {}).get("service_idle_min", 30)),
     )
 

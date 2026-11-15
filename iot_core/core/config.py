@@ -28,7 +28,7 @@ def _secret_database():
     return secrets.get("database") or {}
 
 
-def load_hmi_secrets():
+def _secret_section(name):
 
     if not SECRETS_PATH.exists():
         return {}
@@ -38,12 +38,22 @@ def load_hmi_secrets():
     if not isinstance(secrets, dict):
         return {}
 
-    hmi = secrets.get("hmi")
+    section = secrets.get(name)
 
-    if not isinstance(hmi, dict):
+    if not isinstance(section, dict):
         return {}
 
-    return hmi
+    return section
+
+
+def load_hmi_secrets():
+
+    return _secret_section("hmi")
+
+
+def load_openai_secrets():
+
+    return _secret_section("openai")
 
 
 def _apply_env(database, keys):

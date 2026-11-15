@@ -3,18 +3,17 @@ em2rs_556:
   enabled: true
   slave_id: 31
   polling:
-    # Nie je časovač. Čítanie aj zápis idú v cykle modbus.poll_period_s.
+    # NEAKTÍVNE: nie je časovač. Čítanie aj zápis idú v cykle modbus.poll_period_s.
     interval_s: 5
   safety:
-    # Cieľ je 200 pulzov na otáčku. Driver má teraz slovo 600, preto prevod ešte nie je platný.
+    # NEAKTÍVNE: scaling_confirmed Python nečíta. Je to poznámka k prevodu pulzov.
     scaling_confirmed: false
     # HMI Manual smie poslať homing a polohu, kým INVT beží.
     # Pri STOP, poruche alebo výpadku meniča ide ventil na park_percent.
     # Po reboote Raspberry je v Manual aj Auto najprv homing a potom park_percent.
     motion_writes_enabled: true
   manual:
-    # 600 pulzov = 3 otáčky pri 200 pulzoch na otáčku, celý pracovný zdvih.
-    # Prevod na driver units je vypnutý, kým scaling_confirmed nie je true.
+    # NEAKTÍVNE: max_steps Python nečíta. Prevádzkový rozsah je valve.max_position_steps.
     max_steps: 600
   startup_check:
     # Etapa 4 z tohto bloku skladá len offline plán. Živé čítanie Slave 31 je etapa 8.
@@ -81,12 +80,8 @@ em2rs_556:
     # Dokončený príkaz backward 650 je len predpokladaná logická nula.
     # full_travel_steps je prevádzkový rozsah. Samostatný kľúč travel_steps sa nepridáva.
     reference_method: FIXED_STEPS_ASSUMED
-    # Otvorenie ETS 12C zvyšuje p_evap_prim. Tlak CLOSED závisí od prevádzky a teploty.
-    # null nie je vypnutá ochrana, kým je tlaková kontrola zapnutá.
-    # enabled ostáva pôvodný bezpečnostný kľúč. Vypnutie tlaku je closed_pressure_check_enabled.
-    # Okná 15/5/15 s sa používajú len pri zapnutej kontrole. Najnovšia vzorka musí byť do 10 s.
-    # PID active sa nevyžaduje. 100 kPa nie je predvolený limit.
-    # validated false: smer tlaku potvrdila obsluha, snímač a vplyv čerpadla nie.
+    # NEAKTÍVNE: celý pressure_interlock Python zatiaľ nečíta. Je to plán poistky.
+    # Zapnutie kľúčov tu beh nezmení.
     pressure_interlock:
       enabled: true
       closed_pressure_check_enabled: false
@@ -107,13 +102,22 @@ em2rs_556:
       require_mechanical_closed_confirmation: true
     min_position_steps: 0
     max_position_steps: 600
+    # NEAKTÍVNE: percentá min/max Python nečíta. Beh berie *_steps.
     min_position_percent: 0.0
     max_position_percent: 100.0
     # Poloha mimo prevádzky. INVT STOP, FAULT a POFF sem ventil otvoria,
     # aby sa tlaky v sústave vyrovnali. Po reboote ide ten istý cieľ až za homingom.
     park_percent: 50
+    # 0 % = ventil úplne zatvorený. „Zavri ventil“ je 0 %. 100 % je plne otvorený.
+    # Počas behu, keď skutočné otvorenie klesne na túto hodnotu alebo pod ňu,
+    # menič dostane STOP a čaká na obnovu cez t_cond_in. Žiadaná poloha ani
+    # parkovanie na park_percent tento stop nespúšťajú.
+    # Číslo je percento zdvihu (full_travel_steps). Predvolené 0 je dnešné správanie.
+    # "na" (bez ohľadu na veľkosť písmen) tento stop vypne.
+    closed_stop_percent: 0
     # Dorovnanie p7 zdvihom ETS 12C. Vzorka p7 raz za modbus.poll_period_s.
-    # Beh len keď enabled je true, em2rs_p7_setpoint_kpa je číslo, homing je platný
+    # Beh len keď enabled je true, control_state.em2rs_p7_setpoint_kpa je číslo
+    # (z karty ventilu, nie z YAML), homing je platný
     # a |pid_feedback_kpa − pid_setpoint_kpa| <= invt_tolerance_kpa. Nie p6, nie AI2.
     # invt_tolerance_kpa je pásmo necitlivosti: v ňom EM2RS smie regulovať, mimo neho stojí.
     # Hranica patrí do pásma. Vzorka meniča nesmie byť staršia ako invt_gd20.stability.max_age_s.
@@ -136,10 +140,10 @@ em2rs_556:
     # Na doraze 0 alebo 600 má ďalší krok tým smerom dĺžku 0 a nezapíše sa.
     p7_trim:
       enabled: true
-      setpoint_kpa: null
+      # Žiadaný p7 nie je v YAML. Beh číta control_state.em2rs_p7_setpoint_kpa.
       k_kpa_per_step: 0.18
       max_open_percent: 50
-      invt_tolerance_kpa: 12
+      invt_tolerance_kpa: 50
       sensitivity_kpa: 1.98
       stop_band_kpa: 1.08
       confirm_samples: 3
@@ -155,6 +159,8 @@ em2rs_556:
       no_response_kpa: 1
   motion:
     default_speed_rpm: 50
+    # NEAKTÍVNE: acceleration/deceleration Python pri pohybe nezapisuje.
+    # Path0 berie expected zo startup_check.
     acceleration: 100
     deceleration: 100
   modbus:

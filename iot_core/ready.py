@@ -4,9 +4,43 @@ from pymysql.cursors import DictCursor
 
 
 READY_CHANNELS = ("t_gen_in", "t_cond_in")
+# Predvolené hodnoty. Živé čísla sú v common.yaml, alarms.ready_max_*.
 READY_MAX_AGE_S = 10
 # Jeden vynechaný poll (5 s) medzeru ešte neporuší.
 READY_MAX_GAP_S = 15
+
+
+def _alarms(cfg):
+
+    block = (cfg or {}).get("alarms")
+
+    return block if isinstance(block, dict) else {}
+
+
+def _positive_seconds(raw, default):
+
+    if raw is None or raw == "":
+        return float(default)
+
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return float(default)
+
+    if value <= 0:
+        return float(default)
+
+    return value
+
+
+def ready_max_age_s(cfg):
+
+    return _positive_seconds(_alarms(cfg).get("ready_max_age_s"), READY_MAX_AGE_S)
+
+
+def ready_max_gap_s(cfg):
+
+    return _positive_seconds(_alarms(cfg).get("ready_max_gap_s"), READY_MAX_GAP_S)
 
 
 def start_hold_s(cfg):
@@ -17,6 +51,27 @@ def start_hold_s(cfg):
         return float(block.get("hold_s", 120))
     except (TypeError, ValueError):
         return 120.0
+
+
+def channel_hyst(channel):
+
+    if not isinstance(channel, dict):
+        return 0.0
+
+    raw = channel.get("ready_hyst")
+
+    if raw is None or raw == "":
+        return 0.0
+
+    try:
+        hyst = float(raw)
+    except (TypeError, ValueError):
+        return 0.0
+
+    if hyst < 0:
+        return 0.0
+
+    return hyst
 
 
 def channel_in_limit(channel, value):
@@ -35,11 +90,12 @@ def channel_in_limit(channel, value):
     if not has_min and not has_max:
         return False
 
-    if has_min and number < float(channel["ready_min"]):
+    # Štart berie dolný prah plus hysterezu.
+    if has_min and number < float(channel["ready_min"]) + channel_hyst(channel):
         return False
 
-    # Strop je ostrý: 28 °C kondenzátor ešte nespúšťa.
-    if has_max and number >= float(channel["ready_max"]):
+    # Štart berie strop mínus hysterézu. Pri nule ostáva ostré ready_max.
+    if has_max and number >= float(channel["ready_max"]) - channel_hyst(channel):
         return False
 
     return True
@@ -85,7 +141,75 @@ def generator_cold(channels, values):
         return False
 
 
-def condenser_high(channels, values):
+def generator_below_stop(channels, values):
+
+    channel, value = _temperature_value(channels, values, "t_gen_in")
+
+    if channel is None or channel.get("ready_min") is None:
+        return False
+
+    try:
+        return float(value) < float(channel["ready_min"]) - channel_hyst(channel)
+    except (TypeError, ValueError):
+        return False
+
+
+def condenser_stop_center(channel, stable=False):
+
+    if not isinstance(channel, dict) or channel.get("ready_max") is None:
+        return None
+
+    if stable and channel.get("ready_max_stable") is not None:
+        try:
+            return float(channel["ready_max_stable"])
+        except (TypeError, ValueError):
+            return float(channel["ready_max"])
+
+    return float(channel["ready_max"])
+
+
+def condenser_high(channels, values, stable=False):
+
+    channel, value = _temperature_value(channels, values, "t_cond_in")
+    center = condenser_stop_center(channel, stable)
+
+    if channel is None or center is None:
+        return False
+
+    try:
+        return float(value) > center + channel_hyst(channel)
+    except (TypeError, ValueError):
+        return False
+
+
+def evaporator_band(channels, values):
+
+    channel, value = _temperature_value(channels, values, "t_evap_in")
+
+    if channel is None or channel.get("ready_min") is None:
+        return None, None
+
+    if value is None:
+        return channel, None
+
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return channel, None
+
+    center = float(channel["ready_min"])
+    hyst = channel_hyst(channel)
+
+    if number < center - hyst:
+        return channel, "low"
+
+    if number > center + hyst:
+        return channel, "ok"
+
+    return channel, "hold"
+
+
+def condenser_below_start(channels, values):
 
     channel, value = _temperature_value(channels, values, "t_cond_in")
 
@@ -93,7 +217,7 @@ def condenser_high(channels, values):
         return False
 
     try:
-        return float(value) > float(channel["ready_max"])
+        return float(value) < float(channel["ready_max"]) - channel_hyst(channel)
     except (TypeError, ValueError):
         return False
 
@@ -216,7 +340,9 @@ def start_allowed(conn, cfg, now=None):
 
     moment = datetime.now() if now is None else now
     hold = start_hold_s(cfg)
-    since = moment - timedelta(seconds=hold + READY_MAX_GAP_S)
+    max_age = ready_max_age_s(cfg)
+    max_gap = ready_max_gap_s(cfg)
+    since = moment - timedelta(seconds=hold + max_gap)
     samples = load_temperature_samples(conn, since)
 
     return operation_ready(
@@ -224,4 +350,6 @@ def start_allowed(conn, cfg, now=None):
         samples,
         moment,
         hold_s=hold,
+        max_age_s=max_age,
+        max_gap_s=max_gap,
     )

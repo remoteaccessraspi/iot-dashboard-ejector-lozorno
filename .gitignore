@@ -16,6 +16,7 @@ var/
 
 # Credentials (vzor je config/secrets.yaml.example)
 config/secrets.yaml
+docs/pripojenie-db.txt
 
 # IDE
 .vscode/

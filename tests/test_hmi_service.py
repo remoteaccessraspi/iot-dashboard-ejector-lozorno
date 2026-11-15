@@ -9,7 +9,12 @@ from unittest.mock import patch
 
 import app as dashboard
 from iot_core import ready as dashboard_ready
-from iot_core.core.config import SECRETS_PATH, load_config, load_hmi_secrets
+from iot_core.core.config import (
+    SECRETS_PATH,
+    load_config,
+    load_hmi_secrets,
+    load_openai_secrets,
+)
 from iot_core.hmi.session import (
     idle_seconds,
     password_matches,
@@ -230,6 +235,29 @@ class HmiSecretTests(unittest.TestCase):
         with patch("iot_core.core.config.SECRETS_PATH", missing):
             self.assertEqual(load_hmi_secrets(), {})
 
+    def test_openai_key_is_read_from_secrets(self):
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "secrets.yaml"
+            path.write_text(
+                "openai:\n  api_key: sk-test\n",
+                encoding="utf-8",
+            )
+
+            with patch("iot_core.core.config.SECRETS_PATH", path):
+                openai = load_openai_secrets()
+
+        self.assertEqual(openai.get("api_key"), "sk-test")
+
+    def test_missing_openai_section_returns_empty(self):
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "secrets.yaml"
+            path.write_text("hmi:\n  service_password: \"\"\n", encoding="utf-8")
+
+            with patch("iot_core.core.config.SECRETS_PATH", path):
+                self.assertEqual(load_openai_secrets(), {})
+
 
 class HmiRouteTests(unittest.TestCase):
 
@@ -267,6 +295,8 @@ class HmiRouteTests(unittest.TestCase):
 
         self.assertEqual(graph.status_code, 200)
         self.assertNotIn('class="title"', graph.text)
+        self.assertIn('id="warnBar"', graph.text)
+        self.assertLess(graph.text.index('id="chart"'), graph.text.index('id="warnBar"'))
         self.assertIn(">Graph</a>", graph.text)
         self.assertNotIn('href="/gd20"', graph.text)
         self.assertIn('data-show-ack="0"', graph.text)
@@ -534,6 +564,48 @@ class OperationReadyTests(unittest.TestCase):
         self.assertTrue(self.ready([(self.now, self.values(75, 27.9))], hold_s=0))
         self.assertFalse(self.ready([(self.now, self.values(74.9, 20))], hold_s=0))
         self.assertFalse(self.ready([(self.now, self.values(80, 28))], hold_s=0))
+        wide = {
+            "t3": {"name": "t_gen_in", "ready_min": 75, "ready_hyst": 2},
+            "t6": {"name": "t_cond_in", "ready_max": 28},
+        }
+        self.assertFalse(dashboard_ready.generator_below_stop(wide, self.values(73, 20)))
+        self.assertTrue(dashboard_ready.generator_below_stop(wide, self.values(72.9, 20)))
+        self.assertTrue(dashboard_ready.generator_cold(wide, self.values(74, 20)))
+        self.assertFalse(dashboard_ready.channel_in_limit(wide["t3"], 76.9))
+        self.assertTrue(dashboard_ready.channel_in_limit(wide["t3"], 77))
+        self.assertFalse(dashboard_ready.operation_ready(
+            wide, [(self.now, self.values(76.9, 20))], self.now, hold_s=0,
+        ))
+        self.assertTrue(dashboard_ready.operation_ready(
+            wide, [(self.now, self.values(77, 20))], self.now, hold_s=0,
+        ))
+        ceiling = {
+            "t3": {"name": "t_gen_in", "ready_min": 75},
+            "t6": {
+                "name": "t_cond_in",
+                "ready_max": 28,
+                "ready_hyst": 1,
+                "ready_max_stable": 30,
+            },
+        }
+        self.assertFalse(dashboard_ready.condenser_high(ceiling, self.values(80, 29)))
+        self.assertTrue(dashboard_ready.condenser_high(ceiling, self.values(80, 29.1)))
+        self.assertFalse(dashboard_ready.condenser_high(
+            ceiling, self.values(80, 31), stable=True,
+        ))
+        self.assertTrue(dashboard_ready.condenser_high(
+            ceiling, self.values(80, 31.1), stable=True,
+        ))
+        self.assertFalse(dashboard_ready.condenser_below_start(ceiling, self.values(80, 27)))
+        self.assertTrue(dashboard_ready.condenser_below_start(ceiling, self.values(80, 26.9)))
+        self.assertFalse(dashboard_ready.channel_in_limit(ceiling["t6"], 27))
+        self.assertTrue(dashboard_ready.channel_in_limit(ceiling["t6"], 26.9))
+        self.assertFalse(dashboard_ready.operation_ready(
+            ceiling, [(self.now, self.values(80, 27))], self.now, hold_s=0,
+        ))
+        self.assertTrue(dashboard_ready.operation_ready(
+            ceiling, [(self.now, self.values(80, 26.9))], self.now, hold_s=0,
+        ))
 
     def test_missing_or_stale_sample_is_not_ready(self):
 
@@ -571,12 +643,35 @@ class OperationReadyTests(unittest.TestCase):
 
         cfg = load_config()
 
-        self.assertEqual(cfg["channels"]["t3"]["ready_min"], 75)
+        self.assertEqual(cfg["channels"]["t3"]["ready_min"], 80)
+        self.assertEqual(cfg["channels"]["t3"]["ready_hyst"], 1)
         self.assertNotIn("ready_max", cfg["channels"]["t3"])
         self.assertEqual(cfg["channels"]["t6"]["ready_max"], 28)
+        self.assertEqual(cfg["channels"]["t6"]["ready_max_stable"], 30)
+        self.assertEqual(cfg["channels"]["t6"]["ready_hyst"], 1)
         self.assertNotIn("ready_min", cfg["channels"]["t6"])
+        self.assertEqual(cfg["channels"]["t1"]["ready_min"], 18)
+        self.assertEqual(cfg["channels"]["t1"]["ready_hyst"], 1)
+        self.assertNotIn("ready_max", cfg["channels"]["t1"])
+        evap = {"t1": {"name": "t_evap_in", "ready_min": 18, "ready_hyst": 1}}
+        cold = [16.9, None, 80, None, None, 20, None, None]
+        edge = [17.0, None, 80, None, None, 20, None, None]
+        top = [19.0, None, 80, None, None, 20, None, None]
+        warm = [19.1, None, 80, None, None, 20, None, None]
+        self.assertEqual(dashboard_ready.evaporator_band(evap, cold)[1], "low")
+        self.assertEqual(dashboard_ready.evaporator_band(evap, edge)[1], "hold")
+        self.assertEqual(dashboard_ready.evaporator_band(evap, top)[1], "hold")
+        self.assertEqual(dashboard_ready.evaporator_band(evap, warm)[1], "ok")
+        self.assertIsNone(dashboard_ready.evaporator_band(evap, [None, None, 80, None, None, 20, None, None])[1])
         self.assertEqual(cfg["ck_3083es_8ch"]["start"]["hold_s"], 120)
         self.assertEqual(cfg["ck_3083es_8ch"]["start"]["stop_hold_s"], 15)
+        self.assertEqual(cfg["alarms"]["ready_max_age_s"], 10)
+        self.assertEqual(cfg["alarms"]["ready_max_gap_s"], 15)
+        self.assertEqual(cfg["alarms"]["cavitation_max_age_s"], 15)
+        self.assertEqual(cfg["alarms"]["cavitation_arm_lookback_s"], 10800)
+        self.assertEqual(dashboard_ready.ready_max_age_s(cfg), 10)
+        self.assertEqual(dashboard_ready.ready_max_gap_s(cfg), 15)
+        self.assertEqual(dashboard_ready.ready_max_age_s({"alarms": {"ready_max_age_s": 20}}), 20)
 
 
 if __name__ == "__main__":

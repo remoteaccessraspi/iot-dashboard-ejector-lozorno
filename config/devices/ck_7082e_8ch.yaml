@@ -18,8 +18,8 @@ channels:
   p1: { name: "NA", unit: "kPa" }
   p2: { name: "NA", unit: "kPa" }
   p3: { name: "NA", unit: "kPa" }
-  p4: { name: "NA", unit: "kPa" }
-  p5: { name: "NA", unit: "kPa" }
+  p4: { name: "condenser_flow", unit: "l/s" }
+  p5: { name: "evaporator_flow", unit: "l/s" }
   p6: { name: "p_gen_prim", unit: "kPa (0-1500)" }
   p7: { name: "p_evap_prim", unit: "kPa (0-220)" }
   p8: { name: "p_cond_prim", unit: "kPa (0-400)" }
@@ -29,13 +29,15 @@ channels:
   i1: { name: "NA", unit: "mA" }
   i2: { name: "NA", unit: "mA" }
   i3: { name: "NA", unit: "mA" }
-  i4: { name: "NA", unit: "mA" }
-  i5: { name: "NA", unit: "mA" }
+  i4: { name: "condenser_flow", unit: "mA (4-20)" }
+  i5: { name: "evaporator_flow", unit: "mA (4-20)" }
   i6: { name: "p_gen_prim", unit: "mA (4-20)" }
   i7: { name: "p_evap_prim", unit: "mA (4-20)" }
   i8: { name: "p_cond_prim", unit: "mA (4-20)" }
 
 conversion:
+  # NEAKTÍVNE pri features.converter: false. Live konverziu robí master
+  # v cykle modbus.poll_period_s. interval_sec číta len samostatný converter.
   interval_sec: 1
   # a = kPa pri 4 mA, b = kPa pri 20 mA
   # p = a + (i - 4) * (b - a) / 16
@@ -45,8 +47,8 @@ conversion:
     p1: { source: i1, a: 4.0, b: 20.0 }
     p2: { source: i2, a: 4.0, b: 20.0 }
     p3: { source: i3, a: 4.0, b: 20.0 }
-    p4: { source: i4, a: 4.0, b: 20.0 }
-    p5: { source: i5, a: 4.0, b: 20.0 }
+    p4: { source: i4, a: 0, b: 12.5 }
+    p5: { source: i5, a: 0, b: 12.5 }
     p6: { source: i6, a: 0, b: 1500.0 }
     p7: { source: i7, a: 0, b: 220.0 }
     p8: { source: i8, a: 0, b: 400.0 }

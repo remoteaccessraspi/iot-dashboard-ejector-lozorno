@@ -232,6 +232,7 @@ class Em2rs556DeviceTest(unittest.TestCase):
         self.assertAlmostEqual(limit, 3.9)
         self.assertEqual(homing_delta(cfg["valve"]), -650)
         self.assertEqual(percent_to_steps(50, cfg["valve"]["full_travel_steps"]), 300)
+        self.assertEqual(cfg["valve"]["closed_stop_percent"], 0)
 
     def test_timeout_sends_only_quick_stop(self):
 
