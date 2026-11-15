@@ -52,6 +52,7 @@ hmi:
 
 # Alarm po troch poll cykloch bez odpovede. Slučka mimo 3.5–21 mA
 # je warning, kým menič stojí, a alarm, kým beží.
+# Pod loop_low_ma master ani nepočíta tlak či prietok, na všetkých p1–p8.
 alarms:
   comm_fail_cycles: 3
   loop_low_ma: 3.5

@@ -6,7 +6,7 @@ def get_connection():
 
     return pymysql.connect(
         host=cfg["host"],
-        port=int(cfg.get("port", 3306)),
+        port=int(cfg.get("port", 3307)),
         user=cfg["user"],
         password=cfg["password"],
         database=cfg["name"],

@@ -158,7 +158,7 @@ Všetky štyri sú zapisovateľné. Návrh mimo 200 až 1400 kPa, 5 až 120 s al
 
 | Kľúč | Snímka | Účinok | Zápis |
 |------|--------|--------|-------|
-| `alarms.loop_low_ma` | 3,5 | dolná hranica i6, i7, i8 | áno, 0 až 10 a musí ostať pod hornou |
+| `alarms.loop_low_ma` | 3,5 | dolná hranica alarmu i6, i7, i8; pod ňou master nepočíta tlak ani prietok na žiadnom kanáli p1 až p8 | áno, 0 až 4 a musí ostať pod hornou |
 | `alarms.loop_high_ma` | 21 | horná hranica | áno, 15 až 25 |
 | `alarms.loop_max_age_s` | 10 | staršia vzorka slučky sa neberie | áno, 5 až 60 |
 | `alarms.ready_max_age_s` | 10 | staršia teplota sa na štart a alarmy neberie; rovnaký vek platí pre polohu ventilu pri STOP od zatvoreného ventilu | áno, 5 až 60 |

@@ -9,7 +9,7 @@ from iot_core.core.config import load_config as load_cfg
 def db_connect(db):
     return pymysql.connect(
         host=db["host"],
-        port=int(db.get("port", 3306)),
+        port=int(db.get("port", 3307)),
         user=db["user"],
         password=db["password"],
         database=db["name"],
@@ -20,12 +20,12 @@ def db_connect(db):
     )
 
 
-def compute_p(i_value, a, b):
+def compute_p(i_value, a, b, low_ma=3.5):
 
     if i_value is None:
         return None
 
-    if i_value < 3.5:
+    if i_value < low_ma:
         return None
 
     i_clamped = max(4.0, min(20.0, i_value))
@@ -50,6 +50,7 @@ def main():
 
     conv = cfg.get("conversion", {})
     interval = int(conv.get("interval_sec", 5))
+    low_ma = float((cfg.get("alarms") or {}).get("loop_low_ma", 3.5))
 
     channels = conv.get("channels", {})
 
@@ -108,7 +109,7 @@ def main():
                         a = float(spec.get("a", 1.0))
                         b = float(spec.get("b", 0.0))
 
-                        ps[p_name] = compute_p(currents.get(src), a, b)
+                        ps[p_name] = compute_p(currents.get(src), a, b, low_ma)
 
                     ts = row["ts"].replace(microsecond=0)
 

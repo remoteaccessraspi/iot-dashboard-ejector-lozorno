@@ -29,13 +29,13 @@ def _call_with_fallback(fn, address: int, count: int, unit_id: int):
     raise last
 
 
-def compute_pressure(i, a, b):
+def compute_pressure(i, a, b, low_ma=3.5):
 
     if i is None:
         return None
 
-    # pod ~3.5 mA = odpojený / chybný kanál — nie fyzikálna hodnota
-    if i < 3.5:
+    # Pod alarms.loop_low_ma je kanál odpojený alebo chybný, nie fyzikálna hodnota.
+    if i < low_ma:
         return None
 
     # clamp horný okraj; dolný okraj rozsahu 4–20 mA
@@ -52,12 +52,13 @@ class Ck7082e8chDevice(BaseDevice):
 
     model = MODEL
 
-    def __init__(self, slave_id, reg_cfg, conversion_cfg):
+    def __init__(self, slave_id, reg_cfg, conversion_cfg, low_ma=3.5):
 
         super().__init__(slave_id)
 
         self.reg_cfg = reg_cfg
         self.conversion_cfg = conversion_cfg
+        self.low_ma = float(low_ma)
 
         # mapovanie p -> index i
         self.conv_map = {}
@@ -127,7 +128,8 @@ class Ck7082e8chDevice(BaseDevice):
             pressures[p_index] = compute_pressure(
                 i_val,
                 conv["a"],
-                conv["b"]
+                conv["b"],
+                self.low_ma,
             )
 
         print("currents:", currents)

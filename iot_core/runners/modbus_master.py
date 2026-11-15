@@ -138,7 +138,8 @@ def main():
     ck_7082e = Ck7082e8chDevice(
         slave_id=slaves_cfg[Ck7082e8chDevice.model],
         reg_cfg=modbus_cfg["registers"][Ck7082e8chDevice.model],
-        conversion_cfg=cfg["conversion"]
+        conversion_cfg=cfg["conversion"],
+        low_ma=float((cfg.get("alarms") or {}).get("loop_low_ma", 3.5)),
     )
 
     # --------------------------------------------------
