@@ -1,5 +1,5 @@
 em2rs_556:
-  alias: "EM2RS-556"
+  alias: "Step-Driver"
   enabled: true
   slave_id: 31
   polling:

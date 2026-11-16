@@ -1,5 +1,5 @@
 ck_3083es_8ch:
-  alias: "CK-3083ES_8CH"
+  alias: "Temp"
   # Štart chce t_gen_in aspoň ready_min + ready_hyst a t_cond_in pod ready_max - ready_hyst, súvisle hold_s.
   # t_gen_in pod ready_min - ready_hyst, t_cond_in nad ready_max + ready_hyst
   # a t_evap_in pod ready_min - ready_hyst zastavia bežiaci menič až po stop_hold_s.

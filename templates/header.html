@@ -7,7 +7,9 @@
   <a href="/ck-7082e" {% if request.url.path == '/ck-7082e' %}class="active"{% endif %}>{{ card_alias("ck_7082e_8ch") }}</a>
   <a href="/gd20" {% if request.url.path == '/gd20' %}class="active"{% endif %}>{{ card_alias("invt_gd20") }}</a>
   <a href="/em2rs" {% if request.url.path == '/em2rs' %}class="active"{% endif %}>{{ card_alias("em2rs_556") }}</a>
+  {% if not mobile_client(request) %}
   <a href="/setup" {% if request.url.path == '/setup' %}class="active"{% endif %}>Setup</a>
+  {% endif %}
   {% endif %}
   <a href="/graph" {% if request.url.path == '/graph' %}class="active"{% endif %}>Graph</a>
   {% if service %}

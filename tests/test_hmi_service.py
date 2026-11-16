@@ -17,6 +17,7 @@ from iot_core.core.config import (
 )
 from iot_core.hmi.session import (
     idle_seconds,
+    mobile_user_agent,
     password_matches,
     read_session,
     session_secret,
@@ -52,6 +53,7 @@ class _AppClient:
 
         self.application = application
         self.cookies = _Jar()
+        self.user_agent = ""
 
     def close(self):
 
@@ -91,6 +93,9 @@ class _AppClient:
 
         if cookie:
             headers.append((b"cookie", cookie.encode()))
+
+        if self.user_agent:
+            headers.append((b"user-agent", self.user_agent.encode()))
 
         if payload is not None:
             headers.append((b"content-type", b"application/json"))
@@ -159,6 +164,34 @@ class SessionTests(unittest.TestCase):
         self.assertEqual(idle_seconds(0), 1800)
         self.assertEqual(idle_seconds(-4), 1800)
         self.assertEqual(idle_seconds("nope"), 1800)
+
+    def test_phone_user_agent_is_mobile_and_kiosk_is_not(self):
+
+        phone = (
+            "Mozilla/5.0 (Linux; Android 14; Pixel 8) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/120.0.0.0 Mobile Safari/537.36"
+        )
+        iphone = (
+            "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) "
+            "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 "
+            "Mobile/15E148 Safari/604.1"
+        )
+        kiosk = (
+            "Mozilla/5.0 (X11; Linux aarch64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+        )
+        tablet = (
+            "Mozilla/5.0 (Linux; Android 14; SM-X200) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        )
+
+        self.assertTrue(mobile_user_agent(phone))
+        self.assertTrue(mobile_user_agent(iphone))
+        self.assertFalse(mobile_user_agent(kiosk))
+        self.assertFalse(mobile_user_agent(tablet))
+        self.assertFalse(mobile_user_agent(""))
+        self.assertFalse(mobile_user_agent(None))
 
     def test_empty_password_matches_only_an_empty_field(self):
 
@@ -338,6 +371,7 @@ class HmiRouteTests(unittest.TestCase):
 
         home = self.client.get("/")
         self.assertIn('href="/gd20"', home.text)
+        self.assertIn('href="/setup"', home.text)
         self.assertIn("Close service", home.text)
         self.assertIn(">RUN</button>", home.text)
         self.assertIn("home-actions-service", home.text)
@@ -361,6 +395,47 @@ class HmiRouteTests(unittest.TestCase):
             self.client.get("/gd20", follow_redirects=False).status_code,
             302,
         )
+
+    def test_phone_hides_setup_and_keeps_the_other_service_cards(self):
+
+        self.client.user_agent = (
+            "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) "
+            "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 "
+            "Mobile/15E148 Safari/604.1"
+        )
+        opened = self.client.post("/api/hmi/service", json={"password": ""})
+        self.assertEqual(opened.status_code, 200)
+
+        home = self.client.get("/")
+        self.assertIn('href="/gd20"', home.text)
+        self.assertIn('href="/em2rs"', home.text)
+        self.assertNotIn('href="/setup"', home.text)
+        self.assertNotIn(">Setup</a>", home.text)
+
+        setup = self.client.get("/setup", follow_redirects=False)
+        self.assertEqual(setup.status_code, 302)
+        self.assertEqual(setup.headers["location"], "/")
+        self.assertEqual(self.client.get("/api/setup/status").status_code, 403)
+        self.assertEqual(self.client.post("/api/setup/chat", json={"text": "x"}).status_code, 403)
+        self.assertEqual(
+            self.client.get("/gd20", follow_redirects=False).status_code,
+            200,
+        )
+
+    def test_kiosk_browser_keeps_setup(self):
+
+        self.client.user_agent = (
+            "Mozilla/5.0 (X11; Linux aarch64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+        )
+        opened = self.client.post("/api/hmi/service", json={"password": ""})
+        self.assertEqual(opened.status_code, 200)
+
+        home = self.client.get("/")
+        self.assertIn('href="/setup"', home.text)
+        setup = self.client.get("/setup", follow_redirects=False)
+        self.assertEqual(setup.status_code, 200)
+        self.assertIn(">Setup</a>", setup.text)
 
     def test_activity_refreshes_the_cookie_without_a_password(self):
 

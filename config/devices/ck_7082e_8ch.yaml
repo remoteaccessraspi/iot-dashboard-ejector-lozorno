@@ -1,5 +1,5 @@
 ck_7082e_8ch:
-  alias: "CK-7082E_8CH"
+  alias: "Loop"
 
 modbus:
   slaves:
@@ -11,7 +11,7 @@ modbus:
       address: 96      # overené v prevádzke, nemeniť bez merania na module
       count: 8
       scale: 0.001
-      signed: false
+      signed: true     # PDF Vr1.1: signed int16 / 1000
 
 channels:
   # --- Converted (z i1–i8 cez conversion: tlak, prietok, …) ---

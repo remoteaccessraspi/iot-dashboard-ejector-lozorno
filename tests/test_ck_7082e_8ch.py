@@ -1,6 +1,7 @@
 import unittest
 from unittest.mock import patch
 
+from iot_core.core.config import load_config
 from iot_core.devices.ck_7082e_8ch import Ck7082e8chDevice, compute_converted
 from iot_core.db import connection
 
@@ -91,6 +92,25 @@ class LoopLowTest(unittest.TestCase):
         converted = next(args[1] for args in printed if args[0] == "converted:")
         self.assertIsNone(converted[3])
         self.assertEqual(converted[5], 1500.0)
+
+    def test_register_is_signed_int16(self):
+
+        reg = load_config()["modbus"]["registers"]["CK-7082E_8CH"]
+        device = Ck7082e8chDevice(
+            slave_id=3,
+            reg_cfg=reg,
+            conversion_cfg={"channels": {}},
+        )
+        printed = []
+        words = [0xF6D7, 4000, 12000, 20000, 0, 0, 0, 0]
+
+        with patch("builtins.print", side_effect=lambda *a: printed.append(a)):
+            device.execute(_Client(words), _Conn(), None)
+
+        currents = next(args[1] for args in printed if args[0] == "currents:")
+        self.assertAlmostEqual(currents[0], -2.345)
+        self.assertAlmostEqual(currents[1], 4.0)
+        self.assertAlmostEqual(currents[3], 20.0)
 
 
 class DbPortTest(unittest.TestCase):

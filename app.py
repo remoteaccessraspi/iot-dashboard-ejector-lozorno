@@ -28,6 +28,7 @@ from iot_core.setup.keys import read_values as setup_values
 from iot_core.hmi.session import (
     SERVICE_COOKIE,
     idle_seconds,
+    mobile_user_agent,
     password_matches,
     read_session,
     session_secret,
@@ -305,8 +306,22 @@ def _service_api(request):
         raise HTTPException(status_code=401, detail="service session required")
 
 
+def mobile_client(request):
+
+    return mobile_user_agent(request.headers.get("user-agent"))
+
+
+def _setup_api(request):
+
+    _service_api(request)
+
+    if mobile_client(request):
+        raise HTTPException(status_code=403, detail="Setup is not available on a phone.")
+
+
 templates.env.globals["service_active"] = service_active
 templates.env.globals["service_idle_min"] = service_idle_min
+templates.env.globals["mobile_client"] = mobile_client
 
 
 # --------------------------------------------------
@@ -1398,20 +1413,23 @@ def setup_page(request: Request):
     if denied:
         return denied
 
+    if mobile_client(request):
+        return RedirectResponse(url="/", status_code=302)
+
     return templates.TemplateResponse("setup.html", {"request": request})
 
 
 @app.get("/api/openai/costs")
 def openai_costs_api(request: Request):
 
-    _service_api(request)
+    _setup_api(request)
     return openai_costs.view(current_cfg())
 
 
 @app.get("/api/setup/status")
 def setup_status(request: Request):
 
-    _service_api(request)
+    _setup_api(request)
     cfg = current_cfg()
     opts = setup_agent.settings(cfg)
     entries = yaml_edit.history(limit=20)
@@ -1428,7 +1446,7 @@ def setup_status(request: Request):
 @app.post("/api/setup/chat")
 def setup_chat(request: Request, body: dict = Body(...)):
 
-    _service_api(request)
+    _setup_api(request)
     history = body.get("history") if isinstance(body.get("history"), list) else []
 
     cfg = current_cfg()
@@ -1445,7 +1463,7 @@ def setup_chat(request: Request, body: dict = Body(...)):
 @app.post("/api/setup/apply")
 def setup_apply(request: Request, body: dict = Body(...)):
 
-    _service_api(request)
+    _setup_api(request)
     changes = body.get("changes")
 
     if not isinstance(changes, list) or not changes or not all(isinstance(c, dict) for c in changes):
@@ -1482,7 +1500,7 @@ def setup_apply(request: Request, body: dict = Body(...)):
 @app.post("/api/setup/revert")
 def setup_revert(request: Request, body: dict = Body(...)):
 
-    _service_api(request)
+    _setup_api(request)
     entry = next((e for e in yaml_edit.history(limit=50) if e.get("ts") == body.get("ts")), None)
 
     if entry is None:
@@ -1495,7 +1513,7 @@ def setup_revert(request: Request, body: dict = Body(...)):
 @app.post("/api/setup/restart")
 def setup_restart(request: Request):
 
-    _service_api(request)
+    _setup_api(request)
 
     if _drive_running() is not False:
         raise HTTPException(status_code=409, detail="Restart is allowed only while the drive is stopped.")

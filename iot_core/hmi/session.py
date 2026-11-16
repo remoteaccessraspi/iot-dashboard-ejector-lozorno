@@ -1,8 +1,22 @@
 import hashlib
 import hmac
+import re
 
 
 SERVICE_COOKIE = "hmi_service"
+
+_MOBILE_UA = re.compile(
+    r"mobile|iphone|ipod|windows phone|opera mini",
+    re.IGNORECASE,
+)
+
+
+def mobile_user_agent(value):
+
+    if not isinstance(value, str) or value == "":
+        return False
+
+    return _MOBILE_UA.search(value) is not None
 
 
 def idle_seconds(minutes):
