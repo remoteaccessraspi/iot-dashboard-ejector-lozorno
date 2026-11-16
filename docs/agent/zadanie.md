@@ -72,6 +72,7 @@ Prvá verzia obsahuje presne kľúče, ktoré `pravidla.md` označuje ako zapiso
 - `common.yaml`: `alarms.loop_low_ma`, `loop_high_ma`, `loop_max_age_s`, `ready_max_age_s`, `ready_max_gap_s`, `cavitation_max_age_s`, `cavitation_arm_lookback_s`, `comm_fail_cycles`, `hmi.service_idle_min`
 - ventil: `valve.park_percent`, `valve.closed_stop_percent`
 - `emails.yaml`: `recipients`
+- názvy kariet: `card.ck_3083es_8ch`, `card.ck_7082e_8ch`, `card.invt_gd20`, `card.em2rs_556` (kľúč `alias` v súbore zariadenia, 1 až 24 znakov, nie `NA`, bez `#`, navzájom rôzne). Mená kanálov (`name`) ostávajú zakázané, podľa nich hľadá kanál štart a alarmy.
 
 Väzby medzi kľúčmi, ktoré Python kontroluje po zložení návrhu so súčasným stavom:
 

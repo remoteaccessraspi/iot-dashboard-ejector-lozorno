@@ -7,6 +7,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[2]
 
 CK = "config/devices/ck_3083es_8ch.yaml"
+CK7082 = "config/devices/ck_7082e_8ch.yaml"
 GD20 = "config/devices/invt_gd20.yaml"
 EM2RS = "config/devices/em2rs_556.yaml"
 COMMON = "config/common.yaml"
@@ -63,7 +64,14 @@ KEYS = {k.key: k for k in (
     _k("valve.park_percent", EM2RS, "em2rs_556.valve.park_percent", "float", (0, 100), (0, 100), "valve park, %"),
     _k("valve.closed_stop_percent", EM2RS, "em2rs_556.valve.closed_stop_percent", "percent_or_na", (0, 10), (0, 100), "STOP with the valve closed, %"),
     _k("recipients", EMAILS, "recipients", "emails", label="alarm mail recipients"),
+    _k("card.ck_3083es_8ch", CK, "ck_3083es_8ch.alias", "text", label="card name, temperatures CK-3083ES"),
+    _k("card.ck_7082e_8ch", CK7082, "ck_7082e_8ch.alias", "text", label="card name, current loops CK-7082E"),
+    _k("card.invt_gd20", GD20, "invt_gd20.alias", "text", label="card name, drive INVT GD20"),
+    _k("card.em2rs_556", EM2RS, "em2rs_556.alias", "text", label="card name, valve EM2RS-556"),
 )}
+
+CARD_KEYS = tuple(k for k in KEYS if k.startswith("card."))
+CARD_NAME_MAX = 24
 
 
 class InvalidValue(Exception):
@@ -144,6 +152,18 @@ def normalize(item, value):
             raise InvalidValue(f"{item.key}: at most 20 addresses")
         return out
 
+    if item.type == "text":
+        if not isinstance(value, str):
+            raise InvalidValue(f"{item.key}: expected text")
+        text = " ".join(value.split())
+        if not text or text.lower() == "na":
+            raise InvalidValue(f"{item.key}: the name must not be empty or NA")
+        if len(text) > CARD_NAME_MAX:
+            raise InvalidValue(f"{item.key}: at most {CARD_NAME_MAX} characters")
+        if not text.isprintable() or "#" in text:
+            raise InvalidValue(f"{item.key}: contains a control character or #")
+        return text
+
     if item.type == "percent_or_na" and isinstance(value, str) and value.strip().lower() == "na":
         return "na"
 
@@ -216,6 +236,11 @@ def _relations(v, touched):
 
     if hit("alarms.loop_low_ma", "alarms.loop_high_ma") and v["alarms.loop_low_ma"] >= v["alarms.loop_high_ma"]:
         out.append("alarms.loop_low_ma must stay below alarms.loop_high_ma.")
+
+    if hit(*CARD_KEYS):
+        names = [str(v[k]).strip().lower() for k in CARD_KEYS]
+        if len(set(names)) != len(names):
+            out.append("Two cards must not have the same name.")
 
     return out
 

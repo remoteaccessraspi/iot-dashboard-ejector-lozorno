@@ -17,6 +17,7 @@ SAMPLE = {
     "bool": False,
     "percent_or_na": "na",
     "emails": ["a@example.com", "b@example.com"],
+    "text": "Temp \"A\"",
 }
 
 
@@ -195,6 +196,26 @@ class SetupCheckTest(unittest.TestCase):
 
         _, errors, _ = check([{"key": "recipients", "new": ["nie-je-mail"]}], self.values)
 
+        self.assertTrue(errors)
+
+    def test_card_name_is_trimmed_and_checked(self):
+
+        accepted, errors, _ = check([{"key": "card.ck_3083es_8ch", "new": "  Temp  "}], self.values)
+
+        self.assertEqual((accepted, errors), ({"card.ck_3083es_8ch": "Temp"}, []))
+
+        for bad in ("", "NA", "x" * 25, "A # B", 5):
+            accepted, errors, _ = check([{"key": "card.ck_3083es_8ch", "new": bad}], self.values)
+            self.assertEqual(accepted, {}, bad)
+            self.assertTrue(errors, bad)
+
+    def test_two_cards_cannot_share_a_name(self):
+
+        accepted, errors, _ = check(
+            [{"key": "card.ck_3083es_8ch", "new": self.values["card.invt_gd20"].lower()}], self.values
+        )
+
+        self.assertEqual(accepted, {})
         self.assertTrue(errors)
 
     def test_edges_follow_hysteresis(self):

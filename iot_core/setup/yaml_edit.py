@@ -74,6 +74,9 @@ def render(value):
     if isinstance(value, float):
         return repr(value)
 
+    if isinstance(value, str) and value != "na":
+        return json.dumps(value, ensure_ascii=False)
+
     return str(value)
 
 
