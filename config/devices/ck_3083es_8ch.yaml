@@ -31,13 +31,13 @@ modbus:
 channels:
 
   # --- Teploty ---
-  t1: { name: "t_evap_in", unit: "°C", ready_min: 18, ready_hyst: 1 }
-  t2: { name: "t_gen_out", unit: "°C" }
-  t3: { name: "t_gen_in", unit: "°C", ready_min: 80, ready_hyst: 1 }
-  t4: { name: "t_control", unit: "°C" }
-  t5: { name: "t_cond_out", unit: "°C" }
+  t1: { name: "t_evap_in", label: "t_evap_in", unit: "°C", ready_min: 18, ready_hyst: 1 }
+  t2: { name: "t_gen_out", label: "t_gen_out", unit: "°C" }
+  t3: { name: "t_gen_in", label: "t_gen_in", unit: "°C", ready_min: 80, ready_hyst: 1 }
+  t4: { name: "t_control", label: "t_control", unit: "°C" }
+  t5: { name: "t_cond_out", label: "t_cond_out", unit: "°C" }
   # ready_max: štart pod 27, stop nad 29 keď menič nie je stabilný.
   # ready_max_stable: pri stabilnom INVT stop až nad 31. Chýbajúci kľúč = len ready_max.
-  t6: { name: "t_cond_in", unit: "°C", ready_max: 28, ready_hyst: 1, ready_max_stable: 30 }
-  t7: { name: "t_evap_out", unit: "°C" }
+  t6: { name: "t_cond_in", label: "t_cond_in", unit: "°C", ready_max: 28, ready_hyst: 1, ready_max_stable: 30 }
+  t7: { name: "t_evap_out", label: "t_evap_out", unit: "°C" }
   t8: { name: "NA", unit: "°C" }

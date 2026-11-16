@@ -200,9 +200,9 @@ class SetupCheckTest(unittest.TestCase):
 
     def test_card_name_is_trimmed_and_checked(self):
 
-        accepted, errors, _ = check([{"key": "card.ck_3083es_8ch", "new": "  Temp  "}], self.values)
+        accepted, errors, _ = check([{"key": "card.ck_3083es_8ch", "new": "  Teploty  X "}], self.values)
 
-        self.assertEqual((accepted, errors), ({"card.ck_3083es_8ch": "Temp"}, []))
+        self.assertEqual((accepted, errors), ({"card.ck_3083es_8ch": "Teploty X"}, []))
 
         for bad in ("", "NA", "x" * 25, "A # B", 5):
             accepted, errors, _ = check([{"key": "card.ck_3083es_8ch", "new": bad}], self.values)
@@ -217,6 +217,33 @@ class SetupCheckTest(unittest.TestCase):
 
         self.assertEqual(accepted, {})
         self.assertTrue(errors)
+
+    def test_channel_label_changes_only_label(self):
+
+        doc = (ROOT / "config/devices/ck_3083es_8ch.yaml").read_text(encoding="utf-8")
+        item = KEYS["channels.t1.label"]
+
+        new = yaml_edit.edit_text(doc, item.path, "t-evap_in")
+        t1 = yaml.safe_load(new)["channels"]["t1"]
+
+        self.assertEqual((t1["name"], t1["label"]), ("t_evap_in", "t-evap_in"))
+
+    def test_two_t_channels_cannot_share_a_label(self):
+
+        accepted, errors, _ = check(
+            [{"key": "channels.t1.label", "new": self.values["channels.t3.label"]}], self.values
+        )
+
+        self.assertEqual(accepted, {})
+        self.assertTrue(errors)
+
+    def test_t_and_p_may_share_a_label(self):
+
+        accepted, errors, _ = check([{"key": "channels.t1.label", "new": "X1"},
+                                     {"key": "channels.p4.label", "new": "X1"}], self.values)
+
+        self.assertEqual(errors, [])
+        self.assertEqual(len(accepted), 2)
 
     def test_edges_follow_hysteresis(self):
 

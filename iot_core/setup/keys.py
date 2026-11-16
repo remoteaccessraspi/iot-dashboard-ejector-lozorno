@@ -70,7 +70,22 @@ KEYS = {k.key: k for k in (
     _k("card.em2rs_556", EM2RS, "em2rs_556.alias", "text", label="card name, valve EM2RS-556"),
 )}
 
+CHANNEL_LABELS = {
+    "t1": (CK, "t_evap_in"), "t2": (CK, "t_gen_out"), "t3": (CK, "t_gen_in"), "t4": (CK, "t_control"),
+    "t5": (CK, "t_cond_out"), "t6": (CK, "t_cond_in"), "t7": (CK, "t_evap_out"),
+    "p4": (CK7082, "condenser_flow"), "p5": (CK7082, "evaporator_flow"), "p6": (CK7082, "p_gen_prim"),
+    "p7": (CK7082, "p_evap_prim"), "p8": (CK7082, "p_cond_prim"),
+}
+
+for _ch, (_file, _name) in CHANNEL_LABELS.items():
+    _item = _k(f"channels.{_ch}.label", _file, f"channels.{_ch}.label", "text",
+               label=f"display name of {_ch}, internal {_name}")
+    KEYS[_item.key] = _item
+
 CARD_KEYS = tuple(k for k in KEYS if k.startswith("card."))
+LABEL_GROUPS = tuple(
+    tuple(f"channels.{c}.label" for c in CHANNEL_LABELS if c[0] == prefix) for prefix in ("t", "p")
+)
 CARD_NAME_MAX = 24
 
 
@@ -241,6 +256,12 @@ def _relations(v, touched):
         names = [str(v[k]).strip().lower() for k in CARD_KEYS]
         if len(set(names)) != len(names):
             out.append("Two cards must not have the same name.")
+
+    for group in LABEL_GROUPS:
+        if hit(*group):
+            names = [str(v[k]).strip().lower() for k in group]
+            if len(set(names)) != len(names):
+                out.append("Two channels on one card must not have the same display name.")
 
     return out
 

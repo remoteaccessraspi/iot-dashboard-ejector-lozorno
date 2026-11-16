@@ -118,6 +118,22 @@ def temperature_channel(channels, name):
     return None, None
 
 
+def channel_label(channel, fallback):
+
+    label = channel.get("label") if isinstance(channel, dict) else None
+
+    if isinstance(label, str) and label.strip():
+        return label.strip()
+
+    return fallback
+
+
+def temperature_label(channels, name):
+
+    _index, channel = temperature_channel(channels, name)
+    return channel_label(channel, name)
+
+
 def _temperature_value(channels, values, name):
 
     index, channel = temperature_channel(channels, name)

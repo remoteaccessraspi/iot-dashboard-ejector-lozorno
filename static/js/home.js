@@ -27,13 +27,14 @@ function homeFmt(value, unit) {
 }
 
 
-function homeChannel(names, values, units, wanted) {
+function homeChannel(names, values, units, wanted, ids) {
 
   if (!Array.isArray(names)) {
     return null;
   }
 
-  const index = names.findIndex((name) => String(name).trim() === wanted);
+  const keys = Array.isArray(ids) ? ids : names;
+  const index = keys.findIndex((name) => String(name).trim() === wanted);
 
   if (index < 0) {
     return null;
@@ -260,13 +261,13 @@ async function homeTick() {
     homeShowChannel(
       "evapInLabel",
       "evapInValue",
-      homeChannel(data.t_names, data.t, data.t_units, "t_evap_in"),
+      homeChannel(data.t_names, data.t, data.t_units, "t_evap_in", data.t_ids),
       stale
     );
     homeShowChannel(
       "evapOutLabel",
       "evapOutValue",
-      homeChannel(data.t_names, data.t, data.t_units, "t_evap_out"),
+      homeChannel(data.t_names, data.t, data.t_units, "t_evap_out", data.t_ids),
       stale
     );
     homeRenderGd20(data.gd20);

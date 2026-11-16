@@ -341,7 +341,7 @@ class HmiRouteTests(unittest.TestCase):
         self.assertIn("Close service", home.text)
         self.assertIn(">RUN</button>", home.text)
         self.assertIn("home-actions-service", home.text)
-        self.assertIn("home.js?v=service-run-label", home.text)
+        self.assertIn("home.js?v=channel-label", home.text)
         self.assertNotIn('id="serviceOpen"', home.text)
         self.assertIn('data-show-ack="1"', home.text)
         gd20 = self.client.get("/gd20", follow_redirects=False)
@@ -676,3 +676,20 @@ class OperationReadyTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ChannelLabelTests(unittest.TestCase):
+
+    def test_label_is_shown_and_name_kept_for_lookup(self):
+
+        cfg = {"channels": {
+            "t1": {"name": "t_evap_in", "label": "t-evap_in", "unit": "°C"},
+            "t2": {"name": "t_gen_out", "unit": "°C"},
+            "t8": {"name": "NA", "label": "x", "unit": "°C"},
+        }}
+
+        names, units, ids = dashboard.build_channel_cfg("t", cfg, ids=True)
+
+        self.assertEqual(names[:2], ["t-evap_in", "t_gen_out"])
+        self.assertEqual(ids[:2], ["t_evap_in", "t_gen_out"])
+        self.assertEqual(names[7], "NA")

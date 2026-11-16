@@ -18,11 +18,11 @@ channels:
   p1: { name: "NA", unit: "kPa" }
   p2: { name: "NA", unit: "kPa" }
   p3: { name: "NA", unit: "kPa" }
-  p4: { name: "condenser_flow", unit: "l/s" }
-  p5: { name: "evaporator_flow", unit: "l/s" }
-  p6: { name: "p_gen_prim", unit: "kPa (0-1500)" }
-  p7: { name: "p_evap_prim", unit: "kPa (0-220)" }
-  p8: { name: "p_cond_prim", unit: "kPa (0-400)" }
+  p4: { name: "condenser_flow", label: "condenser_flow", unit: "l/s" }
+  p5: { name: "evaporator_flow", label: "evaporator_flow", unit: "l/s" }
+  p6: { name: "p_gen_prim", label: "p_gen_prim", unit: "kPa (0-1500)" }
+  p7: { name: "p_evap_prim", label: "p_evap_prim", unit: "kPa (0-220)" }
+  p8: { name: "p_cond_prim", label: "p_cond_prim", unit: "kPa (0-400)" }
 
 
   # --- Prúdy 4–20 mA ---

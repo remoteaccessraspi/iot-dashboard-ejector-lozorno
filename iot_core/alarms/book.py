@@ -16,6 +16,7 @@ from iot_core.ready import (
     generator_cold,
     start_allowed,
     temperature_channel,
+    temperature_label,
 )
 
 
@@ -503,7 +504,7 @@ class AlarmBook:
                     "device_id": cond_id,
                     "class": "WARNING",
                     "message": (
-                        f"t_cond_in {float(value):.1f} °C above {limit:g}"
+                        f"{temperature_label(self.temp_channels, 't_cond_in')} {float(value):.1f} °C above {limit:g}"
                     ),
                     "details": {"celsius": round(float(value), 1)},
                     "latched": 0,
@@ -538,7 +539,7 @@ class AlarmBook:
                     "device_id": gen_id,
                     "class": "WARNING",
                     "message": (
-                        f"t_gen_in {float(value):.1f} °C below {limit:g}"
+                        f"{temperature_label(self.temp_channels, 't_gen_in')} {float(value):.1f} °C below {limit:g}"
                     ),
                     "details": {"celsius": round(float(value), 1)},
                     "latched": 0,
@@ -614,10 +615,10 @@ class AlarmBook:
             limit = float(channel["ready_min"]) - channel_hyst(channel)
             if raw == "low":
                 value = self._temp_values[evap_id - 1]
-                message = f"t_evap_in {float(value):.1f} °C below {limit:g}"
+                message = f"{temperature_label(self.temp_channels, 't_evap_in')} {float(value):.1f} °C below {limit:g}"
                 details = {"celsius": round(float(value), 1)}
             elif self.repo.get_state(conn, T_EVAP_LOW, TEMP_SOURCE, evap_id) is None:
-                message = f"t_evap_in held below {limit:g}"
+                message = f"{temperature_label(self.temp_channels, 't_evap_in')} held below {limit:g}"
                 details = None
             else:
                 message = None

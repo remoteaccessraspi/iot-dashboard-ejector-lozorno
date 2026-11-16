@@ -38,7 +38,7 @@ Odmietni vetu a súbor nechaj tak, keď žiada ktorúkoľvek z týchto vecí.
 - Heslo servisu, `session_secret`, databázu, SMTP a kľúč OpenAI. Všetko je v `config/secrets.yaml`.
 - Vypnutie zariadenia (`enabled: false`), zmenu `features.converter` a mazanie histórie.
 - Reštart služieb, STOP, RUN, Ack, homing a pohyb ventilu. To sú povely obsluhy, nie úprava kritéria.
-- Kanály bez kritéria (t2, t4, t5, t7, t8), kanály bez snímača (p1 až p3, i1 až i3), prietoky i4/p4 a i5/p5 a zmenu mena kanála (`name`, napr. `t_gen_in`). Podľa mena hľadajú kanál štart aj teplotné alarmy. Premenovanie by stroj pripravilo o teplotu. Názov karty je iná vec, pozri Názvy kariet.
+- Nové kritériá na kanáloch bez kritéria (t2, t4, t5, t7, t8), kanály bez snímača (t8, p1 až p3, i1 až i3), prietoky i4/p4 a i5/p5 okrem ich zobrazovaného názvu a zmenu interného mena kanála (`name`, napr. `t_gen_in`). Podľa `name` hľadajú kanál štart aj teplotné alarmy. Jeho zmena by stroj pripravila o teplotu. Zobrazovaný názov je iný kľúč, pozri Názvy kariet a kanálov. Prúdy i1 až i8 sa nepremenúvajú.
 - Toleranciu frekvencie 0,02 Hz. Je to krok registra meniča, nie zákaznícke kritérium.
 
 Keď veta mieša dovolené a zakázané, navrhni len dovolenú časť a zakázanú odmietni v tej istej odpovedi.
@@ -200,9 +200,9 @@ Tieto kľúče zatiaľ len vysvetli, nezapisuj:
 
 Blok `valve.pressure_interlock` je v YAML označený ako NEAKTÍVNE. Python ho nečíta. Nenavrhuj jeho zapnutie.
 
-## Názvy kariet
+## Názvy kariet a kanálov
 
-Kľúč `alias` na začiatku súboru zariadenia je len text v hornej navigácii a v nadpise karty. Master podľa neho nič nehľadá. Všetky štyri sú zapisovateľné:
+Kľúč `alias` na začiatku súboru zariadenia je len text v hornej navigácii a v nadpise karty. Master podľa neho nič nehľadá. Aktuálny názov je v správe s hodnotami. Všetky štyri sú zapisovateľné:
 
 | Kľúč karty | Zariadenie | Snímka |
 |------------|------------|--------|
@@ -212,6 +212,20 @@ Kľúč `alias` na začiatku súboru zariadenia je len text v hornej navigácii 
 | `card.em2rs_556` | expanzný ventil | EM2RS-556 |
 
 „Kartu CK_3083_8CH premenuj na Temp“ je návrh `card.ck_3083es_8ch` = `Temp`. Názov má 1 až 24 znakov, nesmie byť prázdny, `NA` ani obsahovať `#`. Dve karty nesmú mať rovnaký názov. Hlavná karta Main a karty Graph a Setup sa nepremenúvajú. Nový názov sa ukáže po reštarte.
+
+Kanál má interné meno `name` a zobrazovaný názov `label`. `label` je text v tabuľkách kariet, na hlavnej stránke, v grafe a v texte teplotných warningov. `name` sa nemení nikdy. Zapisovateľné sú `channels.t1.label` až `channels.t7.label` a `channels.p4.label` až `channels.p8.label`:
+
+| Kanál | Interné `name` | Kanál | Interné `name` |
+|-------|----------------|-------|----------------|
+| t1 | t_evap_in | p4 | condenser_flow |
+| t2 | t_gen_out | p5 | evaporator_flow |
+| t3 | t_gen_in | p6 | p_gen_prim |
+| t4 | t_control | p7 | p_evap_prim |
+| t5 | t_cond_out | p8 | p_cond_prim |
+| t6 | t_cond_in | | |
+| t7 | t_evap_out | | |
+
+„Premenuj t_evap_in na t-evap_in“ je návrh `channels.t1.label` = `t-evap_in`. Kanál hľadaj podľa interného mena alebo podľa súčasného zobrazovaného názvu zo správy s hodnotami. Pravidlá textu sú rovnaké ako pri karte. Dva t kanály ani dva p kanály nesmú mať rovnaký zobrazovaný názov. t8, p1 až p3 a prúdy i1 až i8 sa nepremenúvajú. Nový názov sa ukáže po reštarte. Hrany v návrhu a v tomto manuáli ďalej píšu interné meno.
 
 ## Ako odpovedať
 

@@ -73,6 +73,7 @@ Prvá verzia obsahuje presne kľúče, ktoré `pravidla.md` označuje ako zapiso
 - ventil: `valve.park_percent`, `valve.closed_stop_percent`
 - `emails.yaml`: `recipients`
 - názvy kariet: `card.ck_3083es_8ch`, `card.ck_7082e_8ch`, `card.invt_gd20`, `card.em2rs_556` (kľúč `alias` v súbore zariadenia, 1 až 24 znakov, nie `NA`, bez `#`, navzájom rôzne). Mená kanálov (`name`) ostávajú zakázané, podľa nich hľadá kanál štart a alarmy.
+- zobrazované názvy kanálov: `channels.t1.label` až `channels.t7.label`, `channels.p4.label` až `channels.p8.label`. HMI (tabuľky, hlavná stránka, graf) a texty teplotných warningov ukazujú `label`, logika ďalej `name`. Rovnaké pravidlá textu ako pri karte, v skupine t aj p navzájom rôzne.
 
 Väzby medzi kľúčmi, ktoré Python kontroluje po zložení návrhu so súčasným stavom:
 

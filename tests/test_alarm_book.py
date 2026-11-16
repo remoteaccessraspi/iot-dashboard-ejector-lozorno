@@ -1298,6 +1298,20 @@ class TemperatureRecoveryTest(unittest.TestCase):
         self.assertEqual(self.repo.stops, 1)
         self.assertEqual(int(self.repo.recover["armed"]), 1)
 
+    def test_evaporator_warning_shows_the_display_label(self):
+
+        self.evaporator_limits()
+        self.book.temp_channels["t1"]["label"] = "t-evap_in"
+
+        for moment in (NOW, NOW + timedelta(seconds=16)):
+            self.drive(moment)
+            self.temps(moment, evap=16.9)
+            self.book.observe(None, moment)
+
+        state = self.repo.get_state(None, T_EVAP_LOW, TEMP_SOURCE, 1)
+        self.assertEqual(state["message"], "t-evap_in 16.9 °C below 17")
+        self.assertEqual(self.repo.stops, 1)
+
     def test_evaporator_band_holds_the_previous_side(self):
 
         self.evaporator_limits()

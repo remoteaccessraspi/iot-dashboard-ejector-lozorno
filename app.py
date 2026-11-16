@@ -17,7 +17,7 @@ import pymysql
 from iot_core.alarms.book import AlarmBook, SqlRepo
 from iot_core.billing import costs as openai_costs
 from iot_core.core.config import load_config, load_hmi_secrets
-from iot_core.ready import start_allowed
+from iot_core.ready import channel_label, start_allowed
 from iot_core.service_mode import RUN_SOURCE
 from iot_core.devices.em2rs_556 import settle_remaining_s
 from iot_core.setup import agent as setup_agent
@@ -139,19 +139,27 @@ def db_connect(cfg=None):
 # CHANNEL UTIL
 # --------------------------------------------------
 
-def build_channel_cfg(prefix, cfg=None):
+def build_channel_cfg(prefix, cfg=None, ids=False):
+
+    """Zobrazované mená (label, inak name) a jednotky. ids=True vráti aj interné name."""
 
     channels = (current_cfg() if cfg is None else cfg).get("channels", {})
 
     names = []
     units = []
+    internal = []
 
     for i in range(1, 9):
 
         ch = channels.get(f"{prefix}{i}", {})
+        name = ch.get("name", f"{prefix}{i}")
 
-        names.append(ch.get("name", f"{prefix}{i}"))
+        internal.append(name)
+        names.append(name if _name_is_na(name) else channel_label(ch, name))
         units.append(ch.get("unit", ""))
+
+    if ids:
+        return names, units, internal
 
     return names, units
 
@@ -553,7 +561,7 @@ def api_latest():
         if conn:
             conn.close()
 
-    t_names, t_units = build_channel_cfg("t", cfg)
+    t_names, t_units, t_ids = build_channel_cfg("t", cfg, ids=True)
     i_names, i_units = build_channel_cfg("i", cfg)
     p_names, p_units = build_channel_cfg("p", cfg)
 
@@ -568,6 +576,7 @@ def api_latest():
         "p": pick(prow, "p"),
 
         "t_names": t_names,
+        "t_ids": t_ids,
         "t_units": t_units,
 
         "i_names": i_names,
