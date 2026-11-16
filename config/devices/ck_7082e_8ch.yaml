@@ -14,7 +14,7 @@ modbus:
       signed: false
 
 channels:
-  # --- Tlaky (z i1–i8 cez conversion) ---
+  # --- Converted (z i1–i8 cez conversion: tlak, prietok, …) ---
   p1: { name: "NA", unit: "kPa" }
   p2: { name: "NA", unit: "kPa" }
   p3: { name: "NA", unit: "kPa" }
@@ -39,7 +39,7 @@ conversion:
   # NEAKTÍVNE pri features.converter: false. Live konverziu robí master
   # v cykle modbus.poll_period_s. interval_sec číta len samostatný converter.
   interval_sec: 1
-  # a = kPa pri 4 mA, b = kPa pri 20 mA
+  # a = hodnota pri 4 mA, b = hodnota pri 20 mA (kPa alebo l/s)
   # p = a + (i - 4) * (b - a) / 16
   channels:
     # p1–p5 nemajú pripojený snímač. a/b sú zástupné hodnoty, ktoré len

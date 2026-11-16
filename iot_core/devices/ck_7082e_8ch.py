@@ -29,7 +29,7 @@ def _call_with_fallback(fn, address: int, count: int, unit_id: int):
     raise last
 
 
-def compute_pressure(i, a, b, low_ma=3.5):
+def compute_converted(i, a, b, low_ma=3.5):
 
     if i is None:
         return None
@@ -111,7 +111,7 @@ class Ck7082e8chDevice(BaseDevice):
 
         currents = currents[:8]
 
-        pressures = [None] * 8
+        converted = [None] * 8
 
         for p_index, conv in self.conv_map.items():
 
@@ -125,7 +125,7 @@ class Ck7082e8chDevice(BaseDevice):
             if i_val is None:
                 continue
 
-            pressures[p_index] = compute_pressure(
+            converted[p_index] = compute_converted(
                 i_val,
                 conv["a"],
                 conv["b"],
@@ -133,7 +133,7 @@ class Ck7082e8chDevice(BaseDevice):
             )
 
         print("currents:", currents)
-        print("pressures:", pressures)
+        print("converted:", converted)
         print("ts:", ts)
 
         try:
@@ -149,12 +149,12 @@ class Ck7082e8chDevice(BaseDevice):
 
                 current_loop_id = cur.lastrowid
 
-                # zapis tlaky
+                # zapis converted (tlak, prietok, …)
                 cur.execute("""
                     INSERT INTO conversion_table
                     (ts,current_loop_id,p1,p2,p3,p4,p5,p6,p7,p8)
                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                """, (ts, current_loop_id, *pressures))
+                """, (ts, current_loop_id, *converted))
 
             print("DB insert OK")
 

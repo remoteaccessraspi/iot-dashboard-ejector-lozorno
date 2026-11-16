@@ -3,39 +3,40 @@
 <head>
   <meta charset="utf-8">
   <title>IOT HMI - Setup</title>
-  <link rel="stylesheet" href="{{ request.url_for('static', path='css/style.css') }}?v=setup">
+  <link rel="stylesheet" href="{{ request.url_for('static', path='css/style.css') }}?v=setup-costs">
 </head>
 <body>
 
 {% include "header.html" %}
 
 <div id="setupRestart" class="setup-restart" hidden>
-  <span>Zmena čaká na reštart služieb.</span>
+  <span>A change is waiting for a service restart.</span>
   <span id="setupRestartNote" class="small"></span>
-  <button id="setupRestartBtn" class="btn-run" type="button">Reštartovať</button>
+  <button id="setupRestartBtn" class="btn-run" type="button">Restart</button>
 </div>
 
 <div class="row">
 
   <div class="card setup-card">
-    <div class="section-title">Setup — zmena kritérií</div>
+    <div class="section-title">Setup</div>
     <div id="setupLog" class="setup-log" aria-live="polite"></div>
     <form id="setupForm" class="setup-form">
       <textarea id="setupText" rows="2" maxlength="1000"
-        placeholder="Napíšte, čo chcete zmeniť, napr. „stop výparníka až pod 16 °C“. Enter odošle, Shift+Enter nový riadok."></textarea>
-      <button id="setupSend" class="btn-run" type="submit">Odoslať</button>
+        placeholder="Write what should change, for example “evaporator stop below 16 °C”. Enter sends, Shift+Enter adds a line."></textarea>
+      <button id="setupSend" class="btn-run" type="submit">Send</button>
     </form>
     <div id="setupAgentNote" class="small"></div>
-    <div id="setupUsage" class="small"></div>
   </div>
 
   <div class="card setup-history-card">
-    <div class="section-title">Posledné zmeny</div>
+    <div class="section-title">Recent changes</div>
     <table id="setupHistory"></table>
+    <div id="setupUsage" class="small setup-usage"></div>
+    <div id="setupCosts" class="setup-costs"></div>
   </div>
 
 </div>
 
-<script src="{{ request.url_for('static', path='js/setup.js') }}?v=setup-usage"></script>
+<script src="{{ request.url_for('static', path='js/setup.js') }}?v=setup-costs"></script>
 </body>
 </html>

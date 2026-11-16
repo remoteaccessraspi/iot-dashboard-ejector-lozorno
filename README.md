@@ -230,7 +230,7 @@ OpenAI model (`setup_agent` in `config/common.yaml`, default `gpt-4.1-mini`)
 answers by the manual `docs/agent/pravidla.md` and may propose new values for
 whitelisted keys only. The whitelist, ranges and key relations are in
 `iot_core/setup/keys.py`; the model's output goes through it before the card
-shows anything. Nothing is written until the customer clicks Súhlas. A value
+shows anything. Nothing is written until the customer clicks Accept. A value
 outside the reasonable range needs a second click.
 
 The write in `iot_core/setup/yaml_edit.py` replaces the value on its line only,
@@ -239,17 +239,20 @@ atomically. The previous file goes to `var/setup-backup/` (last 50), the change
 to `var/setup-changes.jsonl`. Revert builds a new proposal from that log.
 
 Keys from device files and `common.yaml` need a restart. The card shows a
-Reštartovať button, enabled only while a fresh GD20 sample says the drive is
+Restart button, enabled only while a fresh GD20 sample says the drive is
 stopped. It restarts `iot-master`, `iot-db-archive` and then `iot-dashboard`
 through the sudoers rule. `emails.yaml` applies without restart.
 
-Under the chat the card shows tokens and approximate USD for today and this
-month, the rest of `monthly_budget_usd` and questions against `daily_limit`.
-Counts come from the `usage` of each OpenAI answer and live in
-`var/setup-usage.json`; prices per million tokens are in `setup_agent`. When the
-monthly budget is spent the agent stops answering. The real OpenAI credit
-balance is shared with other projects and is visible only on
-platform.openai.com; a project key cannot read it.
+Under the chat the card shows how many questions were sent today against
+`daily_limit`. The count lives in `var/setup-usage.json`. Apply and Revert do
+not count. The card does not estimate tokens or USD.
+
+Under Recent changes the same card shows OpenAI costs for this Pi: today,
+this month, and the total since `tracking_start_utc`, from the Costs API.
+Settings are `openai_billing` in `config/common.yaml`. The admin key is
+`OPENAI_ADMIN_KEY` or `openai.admin_key` in `config/secrets.yaml`, never the
+project `api_key`. The poll runs inside `iot-dashboard`. A failed poll keeps
+the last figures and marks them stale. See `docs/OPENAI.md`.
 
 Card changes stay uncommitted in git. `update.sh` stops before `git pull` while
 `config/` has local changes. The spec is `docs/agent/zadanie.md`.

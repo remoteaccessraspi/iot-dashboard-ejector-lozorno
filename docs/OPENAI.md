@@ -96,6 +96,31 @@ Hotový klient v tomto workspace: `images/openai_wireframe.py` → `create_opena
 
 ---
 
+## Náklady na karte Setup
+
+Karta Setup, pod oknom Recent changes, ukazuje USD z Costs API pre `project_id`
+tohto Pi: dnes, tento kalendárny mesiac a celkom od `tracking_start_utc`.
+Hodnoty sú v UTC. Zostatok kreditu sa nečíta.
+
+Nastavenie v `config/common.yaml`, blok `openai_billing`:
+
+- `project_id` je projekt tohto Raspberry Pi (`proj_…`). Každé Pi má vlastný.
+- `tracking_start_utc` je začiatok súčtu, nie celá história organizácie.
+- `poll_interval_seconds` je 600. Worker beží v `iot-dashboard`, mimo Modbusu.
+
+Admin key nie je projektový `api_key`. Má široké práva organizácie. Daj ho
+buď do prostredia `OPENAI_ADMIN_KEY`, alebo do `openai.admin_key` v
+`config/secrets.yaml` (`chmod 600`). Do prehliadača, logu ani gitu nepatrí.
+
+```bash
+sudo systemctl restart iot-dashboard
+```
+
+Nová systemd jednotka netreba. Overenie: v servise otvor Setup. Tri sumy musia
+sedieť s `GET /v1/organization/costs` pre rovnaký UTC rozsah a `project_id`.
+Keď API neodpovie, ostanú posledné čísla a riadok povie, že sú stale. Modbus
+a regulácia idú ďalej.
+
 ## Čo nesmieš
 
 - Kľúč do `README`, `docs/OPENAI.md`, `.env.example`, verejného gitu, chatu alebo fotky obrazovky.

@@ -45,7 +45,7 @@ Keď veta mieša dovolené a zakázané, navrhni len dovolenú časť a zakázan
 
 ## Ako sa čísla dostanú do behu
 
-`config/settings.yaml` len skladá `common.yaml`, súbory v `config/devices/` a tie sa zlejú do jedného stromu. Teploty, prúdy aj tlaky skončia v jednom slovníku `channels`.
+`config/settings.yaml` len skladá `common.yaml`, súbory v `config/devices/` a tie sa zlejú do jedného stromu. Teploty, prúdy aj converted (p1–p8, tlak aj prietok) skončia v jednom slovníku `channels`.
 
 `iot-master`, `iot-dashboard` aj `iot-db-archive` načítajú súbory zariadení a `common.yaml` pri štarte procesu. Zmena v nich začne platiť po reštarte (`restart_all.sh`). `config/emails.yaml` a `config/secrets.yaml` sa čítajú pri použití. Mail preto reštart nepotrebuje.
 

@@ -26,12 +26,7 @@ class _Client:
         self.sent = kwargs
         content = self.answer if isinstance(self.answer, str) else json.dumps(self.answer)
         message = SimpleNamespace(content=content)
-        usage = SimpleNamespace(
-            prompt_tokens=10000,
-            completion_tokens=200,
-            prompt_tokens_details=SimpleNamespace(cached_tokens=8000),
-        )
-        return SimpleNamespace(choices=[SimpleNamespace(message=message)], usage=usage)
+        return SimpleNamespace(choices=[SimpleNamespace(message=message)])
 
 
 class SetupAgentTest(unittest.TestCase):
@@ -67,7 +62,7 @@ class SetupAgentTest(unittest.TestCase):
         change = result["proposal"]["changes"][0]
         self.assertEqual((change["key"], change["new"], change["confirm"]), ("channels.t3.ready_hyst", 2, False))
         self.assertTrue(result["proposal"]["restart"])
-        self.assertIn("štart od 82", result["proposal"]["edges"][0])
+        self.assertIn("start from 82", result["proposal"]["edges"][0])
         self.assertIn("Manuál agenta Setup", client.sent["messages"][0]["content"])
         self.assertIn("channels.t3.ready_min = 80", client.sent["messages"][1]["content"])
 
@@ -126,34 +121,26 @@ class SetupAgentTest(unittest.TestCase):
         with self.assertRaises(agent.AgentError):
             self._ask(answer, cfg=cfg)
 
-    def test_usage_counts_tokens_and_cost(self):
+    def test_usage_counts_questions(self):
 
         self._ask({"reply": "x", "understood": "", "question": True, "changes": []})
         summary = agent.usage_summary({}, var_dir=self.var)
 
-        # 2000 nových po 0,40, 8000 z cache po 0,10, 200 výstupných po 1,60 za milión
-        self.assertEqual(summary["today_tokens"], 10200)
-        self.assertAlmostEqual(summary["month_usd"], 0.00192, places=6)
-        self.assertAlmostEqual(summary["left_usd"], 1.0 - 0.0019, places=4)
-        self.assertEqual(summary["questions_today"], 1)
+        self.assertEqual(summary, {"questions_today": 1, "daily_limit": 100})
 
-    def test_old_usage_file_is_upgraded(self):
+    def test_old_usage_file_keeps_question_count(self):
 
         today = time.strftime("%Y-%m-%d")
-        (self.var / "setup-usage.json").write_text(json.dumps({"date": today, "count": 4}))
+        (self.var / "setup-usage.json").write_text(json.dumps({
+            "date": today,
+            "count": 4,
+            "today_tokens": 100,
+            "month_usd": 0.5,
+        }))
 
         summary = agent.usage_summary({}, var_dir=self.var)
 
-        self.assertEqual((summary["questions_today"], summary["today_tokens"]), (4, 0))
-
-    def test_spent_budget_stops_agent(self):
-
-        answer = {"reply": "x", "understood": "", "question": True, "changes": []}
-        cfg = {"setup_agent": {"monthly_budget_usd": 0.001}}
-        self._ask(answer, cfg=cfg)
-
-        with self.assertRaises(agent.AgentError):
-            self._ask(answer, cfg=cfg)
+        self.assertEqual(summary["questions_today"], 4)
 
     def test_long_text_is_refused_before_call(self):
 

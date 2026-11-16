@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import patch
 
-from iot_core.devices.ck_7082e_8ch import Ck7082e8chDevice, compute_pressure
+from iot_core.devices.ck_7082e_8ch import Ck7082e8chDevice, compute_converted
 from iot_core.db import connection
 
 
@@ -59,14 +59,14 @@ class LoopLowTest(unittest.TestCase):
 
     def test_default_cut_is_three_and_a_half_ma(self):
 
-        self.assertIsNone(compute_pressure(3.49, 0, 1500))
-        self.assertEqual(compute_pressure(3.5, 0, 1500), 0)
-        self.assertEqual(compute_pressure(20.0, 0, 1500), 1500)
+        self.assertIsNone(compute_converted(3.49, 0, 1500))
+        self.assertEqual(compute_converted(3.5, 0, 1500), 0)
+        self.assertEqual(compute_converted(20.0, 0, 1500), 1500)
 
     def test_cut_follows_the_given_limit(self):
 
-        self.assertIsNone(compute_pressure(3.7, 0, 1500, low_ma=3.8))
-        self.assertEqual(compute_pressure(3.8, 0, 1500, low_ma=3.8), 0)
+        self.assertIsNone(compute_converted(3.7, 0, 1500, low_ma=3.8))
+        self.assertEqual(compute_converted(3.8, 0, 1500, low_ma=3.8), 0)
 
     def test_device_uses_its_limit_on_every_channel(self):
 
@@ -88,9 +88,9 @@ class LoopLowTest(unittest.TestCase):
         with patch("builtins.print", side_effect=lambda *a: printed.append(a)):
             device.execute(_Client(currents), _Conn(), None)
 
-        pressures = next(args[1] for args in printed if args[0] == "pressures:")
-        self.assertIsNone(pressures[3])
-        self.assertEqual(pressures[5], 1500.0)
+        converted = next(args[1] for args in printed if args[0] == "converted:")
+        self.assertIsNone(converted[3])
+        self.assertEqual(converted[5], 1500.0)
 
 
 class DbPortTest(unittest.TestCase):

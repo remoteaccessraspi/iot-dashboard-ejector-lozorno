@@ -52,7 +52,7 @@ def _find_child(lines, start, end, part):
         if m and m.group(3).strip() == part:
             return n
 
-    raise EditError("kľúč " + part + " sa v súbore nenašiel")
+    raise EditError("key " + part + " was not found in the file")
 
 
 def _block_end(lines, n):
@@ -89,7 +89,7 @@ def _set_flow(line, part, value):
     new, count = pattern.subn(lambda m: m.group(1) + m.group(2) + m.group(3) + render(value) + m.group(5), line, count=1)
 
     if count != 1:
-        raise EditError("kľúč " + part + " sa v riadku nenašiel")
+        raise EditError("key " + part + " was not found on the line")
 
     return new
 
@@ -100,7 +100,7 @@ def _set_list(lines, n, value):
     items = [m for m in range(n + 1, end) if lines[m].lstrip().startswith("- ")]
 
     if not items:
-        raise EditError("zoznam je prázdny alebo nie je v blokovom tvare")
+        raise EditError("the list is empty or is not a block")
 
     pad = " " * _indent(lines[items[0]])
     new_items = [f"{pad}- {entry}\n" for entry in value]
@@ -120,7 +120,7 @@ def set_value(text, path, value):
 
         if not last and rest.strip().startswith("{"):
             if i != len(path) - 2:
-                raise EditError("vnorená inline mapa nie je podporovaná")
+                raise EditError("a nested inline map is not supported")
             lines[n] = _set_flow(lines[n], path[-1], value)
             return "".join(lines)
 
@@ -130,14 +130,14 @@ def set_value(text, path, value):
                 return "".join(lines)
             space, old, comment = _split_comment(rest)
             if not old or old.startswith(("{", "[", "|", ">")):
-                raise EditError("kľúč " + part + " nemá jednoduchú hodnotu")
+                raise EditError("key " + part + " has no plain value")
             newline = "\n" if lines[n].endswith("\n") else ""
             lines[n] = lines[n][: match.start(4)] + space + render(value) + comment + newline
             return "".join(lines)
 
         start, end = n + 1, _block_end(lines, n)
 
-    raise EditError("prázdna cesta")
+    raise EditError("empty path")
 
 
 def _assign(tree, path, value):
@@ -156,7 +156,7 @@ def edit_text(text, path, value):
     _assign(expected, path, value)
 
     if yaml.safe_load(new) != expected:
-        raise EditError("úprava by zmenila aj iné hodnoty, zápis zrušený")
+        raise EditError("the edit would change other values, write cancelled")
 
     return new
 
@@ -210,7 +210,7 @@ def apply(changes, request_text="", confirmed=False, root=ROOT, var_dir=None):
 
         for change in changes:
             if current[change["key"]] != change["old"]:
-                raise Conflict("Súbor sa medzitým zmenil. Návrh treba zopakovať.")
+                raise Conflict("The file changed in the meantime. Repeat the proposal.")
 
         texts = {}
 

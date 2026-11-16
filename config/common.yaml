@@ -52,20 +52,22 @@ hmi:
 
 # AI agent karty Setup. Kľúč je v secrets.yaml (openai.api_key).
 # daily_limit je počet otázok na agenta za deň, zápis a Vrátiť sa nerátajú.
-# monthly_budget_usd: po minutí v kalendárnom mesiaci agent neodpovedá.
-# Ceny sú USD za milión tokenov podľa cenníka OpenAI pre model vyššie.
-# Pri zmene modelu ich treba prepísať. Skutočný zostatok kreditu je len
-# na platform.openai.com, projektový kľúč ho prečítať nevie.
+# Tokeny ani doláre sa tu nepočítajú. Účtovanie číta openai_billing.
 setup_agent:
   enabled: true
   model: gpt-4.1-mini
   timeout_s: 30
   max_output_tokens: 800
   daily_limit: 100
-  monthly_budget_usd: 1.0
-  price_input_per_mtok: 0.40
-  price_cached_per_mtok: 0.10
-  price_output_per_mtok: 1.60
+
+# Náklady OpenAI tohto Pi. Admin key sem nepatrí: OPENAI_ADMIN_KEY
+# alebo openai.admin_key v secrets.yaml. project_id je projekt tohto Pi.
+openai_billing:
+  enabled: true
+  project_id: "proj_dJCZWyonLGYmH6qbiM7w5IGt"
+  poll_interval_seconds: 600
+  tracking_start_utc: "2026-11-01T00:00:00Z"
+  currency: "USD"
 
 # Alarm po troch poll cykloch bez odpovede. Slučka mimo 3.5–21 mA
 # je warning, kým menič stojí, a alarm, kým beží.

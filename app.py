@@ -1,3 +1,6 @@
+import asyncio
+from contextlib import asynccontextmanager
+
 from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -12,6 +15,7 @@ import math
 import pymysql
 
 from iot_core.alarms.book import AlarmBook, SqlRepo
+from iot_core.billing import costs as openai_costs
 from iot_core.core.config import load_config, load_hmi_secrets
 from iot_core.ready import start_allowed
 from iot_core.service_mode import RUN_SOURCE
@@ -43,7 +47,26 @@ from iot_core.devices.invt_gd20 import (
 
 BASE_DIR = Path(__file__).resolve().parent
 
-app = FastAPI()
+
+@asynccontextmanager
+async def _lifespan(app):
+
+    stop = asyncio.Event()
+    task = asyncio.create_task(openai_costs.loop(stop))
+
+    try:
+        yield
+    finally:
+        stop.set()
+        task.cancel()
+
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+
+app = FastAPI(lifespan=_lifespan)
 
 app.mount(
     "/static",
@@ -1369,6 +1392,13 @@ def setup_page(request: Request):
     return templates.TemplateResponse("setup.html", {"request": request})
 
 
+@app.get("/api/openai/costs")
+def openai_costs_api(request: Request):
+
+    _service_api(request)
+    return openai_costs.view(current_cfg())
+
+
 @app.get("/api/setup/status")
 def setup_status(request: Request):
 
@@ -1410,13 +1440,13 @@ def setup_apply(request: Request, body: dict = Body(...)):
     changes = body.get("changes")
 
     if not isinstance(changes, list) or not changes or not all(isinstance(c, dict) for c in changes):
-        raise HTTPException(status_code=400, detail="Návrh je prázdny.")
+        raise HTTPException(status_code=400, detail="The proposal is empty.")
 
     values = setup_values()
 
     for change in changes:
         if change.get("key") in values and values[change["key"]] != change.get("old"):
-            raise HTTPException(status_code=409, detail="Súbor sa medzitým zmenil. Návrh treba zopakovať.")
+            raise HTTPException(status_code=409, detail="The file changed in the meantime. Repeat the proposal.")
 
     accepted, errors, confirm = setup_check(changes, values)
 
@@ -1424,7 +1454,7 @@ def setup_apply(request: Request, body: dict = Body(...)):
         raise HTTPException(status_code=400, detail=" ".join(errors))
 
     if confirm and body.get("confirmed") is not True:
-        raise HTTPException(status_code=400, detail="Hodnota mimo rozumného rozsahu potrebuje druhé potvrdenie.")
+        raise HTTPException(status_code=400, detail="A value outside the reasonable range needs a second confirmation.")
 
     try:
         entry = yaml_edit.apply(
@@ -1435,7 +1465,7 @@ def setup_apply(request: Request, body: dict = Body(...)):
     except yaml_edit.Conflict as e:
         raise HTTPException(status_code=409, detail=str(e)) from None
     except yaml_edit.EditError as e:
-        raise HTTPException(status_code=500, detail=f"Zápis zlyhal: {e}") from None
+        raise HTTPException(status_code=500, detail=f"Write failed: {e}") from None
 
     return {"status": "ok", "entry": entry}
 
@@ -1447,7 +1477,7 @@ def setup_revert(request: Request, body: dict = Body(...)):
     entry = next((e for e in yaml_edit.history(limit=50) if e.get("ts") == body.get("ts")), None)
 
     if entry is None:
-        raise HTTPException(status_code=404, detail="Zmena sa nenašla.")
+        raise HTTPException(status_code=404, detail="The change was not found.")
 
     changes = [{"key": c["key"], "new": c["old"]} for c in entry.get("changes") or []]
     return {"proposal": setup_agent.proposal(changes, setup_values())}
@@ -1459,11 +1489,11 @@ def setup_restart(request: Request):
     _service_api(request)
 
     if _drive_running() is not False:
-        raise HTTPException(status_code=409, detail="Reštart ide len keď menič stojí.")
+        raise HTTPException(status_code=409, detail="Restart is allowed only while the drive is stopped.")
 
     try:
         setup_services.restart_all()
     except Exception as e:
-        raise HTTPException(status_code=500, detail="Reštart zlyhal.") from e
+        raise HTTPException(status_code=500, detail="Restart failed.") from e
 
     return {"status": "ok"}

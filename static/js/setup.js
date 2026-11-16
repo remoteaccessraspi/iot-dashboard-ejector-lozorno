@@ -10,6 +10,7 @@
   const restartBtn = document.getElementById("setupRestartBtn");
   const restartNote = document.getElementById("setupRestartNote");
   const usageLine = document.getElementById("setupUsage");
+  const costsBox = document.getElementById("setupCosts");
 
   const history = [];
 
@@ -22,27 +23,67 @@
 
   function show(value) {
     if (Array.isArray(value)) return value.join(", ");
-    if (value === true) return "áno";
-    if (value === false) return "nie";
+    if (value === true) return "yes";
+    if (value === false) return "no";
     return String(value);
-  }
-
-  function tokens(n) {
-    return Number(n || 0).toLocaleString("sk-SK");
-  }
-
-  function usd(n) {
-    return Number(n || 0).toLocaleString("sk-SK", {minimumFractionDigits: 2, maximumFractionDigits: 2}) + " $";
   }
 
   function renderUsage(u) {
     if (!u) return;
-    usageLine.textContent =
-      `Tokeny dnes ${tokens(u.today_tokens)} (${usd(u.today_usd)}) · ` +
-      `mesiac ${tokens(u.month_tokens)} (${usd(u.month_usd)}) · ` +
-      `zostáva ${usd(u.left_usd)} z ${usd(u.budget_usd)} · ` +
-      `otázky dnes ${u.questions_today}/${u.daily_limit}`;
-    usageLine.classList.toggle("setup-error", u.left_usd <= 0 || u.questions_today >= u.daily_limit);
+    usageLine.textContent = `Questions today ${u.questions_today}/${u.daily_limit}`;
+    usageLine.classList.toggle("setup-error", u.questions_today >= u.daily_limit);
+  }
+
+  function costStatus(status) {
+    const text = {
+      not_initialized: "Not loaded yet",
+      missing_key: "Admin key is missing",
+      missing_project: "Project id is missing",
+      disabled: "Cost monitoring is off",
+      unauthorized: "Admin key was rejected",
+      rate_limit: "OpenAI rate limit, showing the last value",
+      timeout: "OpenAI timed out, showing the last value",
+      network: "OpenAI is unreachable, showing the last value",
+      server: "OpenAI failed, showing the last value",
+      bad_config: "Cost settings are invalid",
+      stale: "stale",
+    };
+    return text[status] || status;
+  }
+
+  function renderCosts(costs) {
+    costsBox.replaceChildren();
+    if (!costs) return;
+    costsBox.appendChild(el("div", "setup-cost-label", "OpenAI API costs"));
+    [
+      ["Today", costs.today_usd],
+      ["This month", costs.month_usd],
+      ["Since tracking start", costs.total_since_tracking_start_usd],
+    ].forEach((pair) => {
+      const row = el("div", "", pair[0] + "  " + pair[1] + " " + costs.currency);
+      costsBox.appendChild(row);
+    });
+    const note = el("div", "small");
+    const bits = [];
+    if (costs.last_successful_update_utc) bits.push("Updated " + costs.last_successful_update_utc);
+    if (costs.stale) bits.push(costStatus(costs.status));
+    note.textContent = bits.join(" · ");
+    note.classList.toggle("setup-error", Boolean(costs.stale));
+    costsBox.appendChild(note);
+  }
+
+  async function loadCosts() {
+    try {
+      const response = await fetch("/api/openai/costs", {cache: "no-store"});
+      if (response.status === 401) {
+        location.href = "/";
+        return;
+      }
+      if (!response.ok) return;
+      renderCosts(await response.json());
+    } catch (error) {
+      return;
+    }
   }
 
   function scroll() {
@@ -64,13 +105,13 @@
 
     if (response.status === 401) {
       location.href = "/";
-      throw new Error("Servis sa zatvoril.");
+      throw new Error("Service closed.");
     }
 
     const data = await response.json().catch(() => ({}));
 
     if (!response.ok) {
-      throw new Error(typeof data.detail === "string" ? data.detail : "Požiadavka zlyhala.");
+      throw new Error(typeof data.detail === "string" ? data.detail : "The request failed.");
     }
 
     return data;
@@ -82,7 +123,7 @@
     if (proposal.changes.length) {
       const table = el("table");
       const head = el("tr");
-      ["Kľúč", "Teraz", "Nové"].forEach((t) => head.appendChild(el("th", "", t)));
+      ["Key", "Now", "New"].forEach((t) => head.appendChild(el("th", "", t)));
       table.appendChild(head);
 
       proposal.changes.forEach((c) => {
@@ -103,8 +144,8 @@
 
     if (proposal.changes.length) {
       box.appendChild(el("div", "small", proposal.restart
-        ? "Platí až po reštarte služieb."
-        : "Platí hneď, reštart netreba."));
+        ? "Applies after a service restart."
+        : "Applies at once. No restart."));
     }
 
     proposal.errors.forEach((line) => box.appendChild(el("div", "setup-error", line)));
@@ -113,7 +154,7 @@
 
     if (needConfirm) {
       box.appendChild(el("div", "setup-error",
-        "Hodnota je mimo rozumného rozsahu. Súhlas treba potvrdiť ešte raz."));
+        "The value is outside the reasonable range. Accept once more to write it."));
     }
 
     if (!proposal.changes.length) {
@@ -123,8 +164,8 @@
     }
 
     const actions = el("div", "actions");
-    const yes = el("button", "btn-run", "Súhlas");
-    const no = el("button", "btn-stop", "Zrušiť");
+    const yes = el("button", "btn-run", "Accept");
+    const no = el("button", "btn-stop", "Cancel");
     yes.type = no.type = "button";
     let armed = !needConfirm;
 
@@ -137,7 +178,7 @@
     yes.addEventListener("click", async () => {
       if (!armed) {
         armed = true;
-        yes.textContent = "Naozaj zapísať";
+        yes.textContent = "Write it";
         return;
       }
 
@@ -149,8 +190,8 @@
           request: requestText,
           confirmed: needConfirm,
         });
-        close("Zapísané.");
-        history.push({role: "assistant", content: "Zmena bola zapísaná."});
+        close("Written.");
+        history.push({role: "assistant", content: "The change was written."});
       } catch (error) {
         box.appendChild(el("div", "setup-error", error.message));
         close();
@@ -160,8 +201,8 @@
     });
 
     no.addEventListener("click", () => {
-      close("Zrušené, nič sa nezapísalo.");
-      history.push({role: "assistant", content: "Zákazník návrh zrušil."});
+      close("Cancelled. Nothing was written.");
+      history.push({role: "assistant", content: "The customer cancelled the proposal."});
     });
 
     actions.appendChild(yes);
@@ -174,7 +215,7 @@
   async function ask(text) {
     say("user", text);
     send.disabled = input.disabled = true;
-    const waiting = el("div", "setup-msg setup-wait", "Agent premýšľa…");
+    const waiting = el("div", "setup-msg setup-wait", "The agent is thinking…");
     log.appendChild(waiting);
     scroll();
 
@@ -219,8 +260,8 @@
   async function revert(entry) {
     try {
       const data = await post("/api/setup/revert", {ts: entry.ts});
-      say("agent", "Návrh na vrátenie zmeny z " + stamp(entry.ts) + ":");
-      proposalCard(data.proposal, "Vrátiť zmenu z " + stamp(entry.ts));
+      say("agent", "Proposal to revert the change from " + stamp(entry.ts) + ":");
+      proposalCard(data.proposal, "Revert the change from " + stamp(entry.ts));
     } catch (error) {
       say("error", error.message);
     }
@@ -231,7 +272,7 @@
 
     if (!entries.length) {
       const row = el("tr");
-      row.appendChild(el("td", "small", "Zatiaľ žiadne zmeny."));
+      row.appendChild(el("td", "small", "No changes yet."));
       historyTable.appendChild(row);
       return;
     }
@@ -246,7 +287,7 @@
       if (entry.request) what.appendChild(el("div", "small", entry.request));
       row.appendChild(what);
       const cell = el("td");
-      const button = el("button", "", "Vrátiť");
+      const button = el("button", "", "Revert");
       button.type = "button";
       button.addEventListener("click", () => revert(entry));
       cell.appendChild(button);
@@ -266,12 +307,13 @@
 
       renderHistory(data.history || []);
       renderUsage(data.usage);
-      agentNote.textContent = data.agent ? "" : "Agent je v common.yaml vypnutý. Zoznam zmien a Vrátiť fungujú.";
+      loadCosts();
+      agentNote.textContent = data.agent ? "" : "The agent is disabled in common.yaml. The change list and Revert still work.";
       restartBox.hidden = !data.restart_pending;
       restartBtn.disabled = data.drive_running !== false;
       restartNote.textContent = data.drive_running === true
-        ? "Menič beží, reštart počká na STOP."
-        : data.drive_running === false ? "" : "Stav meniča nie je známy.";
+        ? "The drive is running. Restart waits for STOP."
+        : data.drive_running === false ? "" : "Drive state is unknown.";
     } catch (error) {
       return;
     }
@@ -279,7 +321,7 @@
 
   restartBtn.addEventListener("click", async () => {
     restartBtn.disabled = true;
-    restartNote.textContent = "Reštartujem…";
+    restartNote.textContent = "Restarting…";
 
     try {
       await post("/api/setup/restart");

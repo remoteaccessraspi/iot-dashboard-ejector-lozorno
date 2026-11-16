@@ -56,6 +56,18 @@ def load_openai_secrets():
     return _secret_section("openai")
 
 
+def load_openai_admin_key():
+
+    # Organizačný Admin key pre Costs API. Nie je to projektový api_key.
+    # Prostredie má prednosť, aby kľúč nemusel byť v súbore čitateľnom širšie.
+    env = os.environ.get("OPENAI_ADMIN_KEY", "").strip()
+
+    if env:
+        return env
+
+    return str(load_openai_secrets().get("admin_key") or "").strip()
+
+
 def _apply_env(database, keys):
 
     for key in keys:

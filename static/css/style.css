@@ -834,3 +834,13 @@ button.btn-service {
 }
 
 .setup-restart[hidden] { display: none; }
+
+.setup-usage { margin-top: 12px; }
+
+.setup-costs { margin-top: 16px; }
+
+.setup-cost-label {
+  color: #90caf9;
+  font-weight: 700;
+  margin-bottom: 4px;
+}

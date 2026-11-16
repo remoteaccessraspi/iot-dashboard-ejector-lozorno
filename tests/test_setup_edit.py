@@ -203,7 +203,7 @@ class SetupCheckTest(unittest.TestCase):
 
         self.assertEqual(
             edges(values, ["channels.t3.ready_hyst"]),
-            ["Generátor t_gen_in: štart od 82 °C, stop pod 78 °C."],
+            ["Generator t_gen_in: start from 82 °C, stop below 78 °C."],
         )
 
 
