@@ -5,11 +5,13 @@ Zdroj: INVT Goodrive20-EU V1.9, `docs/GD20-EU VFD Manual _V1.9.pdf`. Skupina P09
 | Parameter | Funkcia | Hodnota v PDF | Čo s tým robí program |
 |---|---|---|---|
 | `P00.01` | zdroj RUN/STOP | `2` = komunikácia | pri štarte zapíše 2, keď menič stojí |
-| `P00.06` | zdroj frekvencie A | `7` = procesný PID | nezapisuje; `required_value` je v YAML |
-| `P00.07` | zdroj frekvencie B | PID beží aj keď je tu `7` | v YAML nie je |
+| `P00.06` | zdroj frekvencie A | `7` = procesný PID | nečíta ani nezapisuje |
+| `P00.07` | zdroj frekvencie B | PID beží aj keď je tu `7` | nečíta ani nezapisuje |
 | `P09.00` | zdroj PID referencie | `6` = Modbus `0x2002` | nezapisuje |
 | `P09.02` | zdroj spätnej väzby | `1` = AI2 | nezapisuje |
 | `P09.03` | smer PID | `0` kladný, `1` záporný | nezapisuje |
+
+Interný PID sa aktivuje len na meniči: P00.06 = 7, alebo P00.07 = 7. Master oba parametre pri behu nečíta a do meniča ich nezapisuje. Sedmička pri P00.06 v YAML je len očakávaná hodnota pre diagnostický skript, nie nastavenie, ktoré by program posielal.
 
 PID referencia v meniči je relatívna: 100 % zodpovedá 100 % signálu spätnej väzby. Register `0x2002` má rozsah 0–1000 = 0–100,0 %.
 

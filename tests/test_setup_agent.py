@@ -8,7 +8,9 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from iot_core.setup import agent, services
+from iot_core.setup.manuals import excerpts
 from iot_core.setup.keys import read_values
+from iot_core.setup.program import code_sheet, program_sheet, runtime_sheet
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -147,6 +149,39 @@ class SetupAgentTest(unittest.TestCase):
         with self.assertRaises(agent.AgentError):
             self._ask({}, text="x" * 1001)
 
+    def test_pid_question_attaches_the_drive_manual(self):
+
+        text = excerpts("ako sa nastavuje pid regulator na frekvencnom menici")
+
+        self.assertIn("PID_CONTROL.md", text)
+        self.assertIn("P09.04", text)
+        self.assertNotIn("/CURSOR_INSTRUCTIONS.md", text)
+        self.assertNotIn("CK_TP7", text)
+        self.assertNotIn("0x", text)
+
+    def test_stepper_question_gets_the_whole_driver_setup(self):
+
+        text = excerpts("ako je nastaveny step motor driver")
+
+        self.assertIn("EM2RS_556_Cursor_Manuals/CONFIGURATION.md", text)
+        self.assertLess(text.index("EM2RS"), text.index("INVT") if "INVT" in text else len(text))
+        self.assertIn("Pr5.00", text)
+        self.assertIn("0,8 A", text)
+        self.assertIn("absolútna poloha", text)
+        self.assertNotIn("mechanický predpoklad", text)
+
+    def test_criteria_sentence_attaches_no_manual(self):
+
+        self.assertEqual(excerpts("hystereza generatora 2 stupne"), "")
+
+    def test_wiring_table_reaches_the_model(self):
+
+        _, client = self._ask({"reply": "x", "understood": "", "question": True, "changes": []})
+        sent = client.sent["messages"][0]["content"]
+
+        self.assertIn("| t3 | t_gen_in | 7 | 8 | 9 |", sent)
+        self.assertIn("| i7, p7 | p_evap_prim | 13 | 14 |", sent)
+
     def test_secrets_never_reach_model(self):
 
         _, client = self._ask({"reply": "x", "understood": "", "question": True, "changes": []})
@@ -154,6 +189,52 @@ class SetupAgentTest(unittest.TestCase):
 
         self.assertNotIn("api_key:", sent)
         self.assertNotIn("password", sent)
+
+    def test_code_sheet_says_what_the_master_writes(self):
+
+        text = code_sheet()
+
+        self.assertIn("Pr0.00 = 200 pulzov na otáčku", text)
+        self.assertIn("Pr5.00 = 0,8 A (slovo 8)", text)
+        self.assertIn("absolútna poloha", text)
+        self.assertIn("P00.01 = 2, len keď menič stojí", text)
+        self.assertIn("P00.06 required_value 7 master nezapisuje ani nečíta", text)
+        self.assertIn("pressure_interlock", text)
+        self.assertIn("pid_defaults", text)
+        self.assertNotIn("0x", text)
+
+    def test_runtime_sheet_uses_the_last_sample_and_hides_addresses(self):
+
+        journal = "\n".join([
+            "GD20 ts=2026-11-17 14:49:10 f=0.0 fset=35.0 dc=321.1 V=0.0 I=0.0 rpm=0 "
+            "sp=0.0 fb=0.0 ai2=97.5 fault=0 ext=False status=3 run=0",
+            "EM2RS ts=2026-11-17 14:49:10 status=CONFIG_MATCH pr0=200/200 pr5=8/8 "
+            "mode=1 pos=300 speed=50/50 acc=100/100 dec=100/100 pause=0 gd20=no/-811.5",
+            "GD20 setup P00.01 0x0001 2 == 2",
+            "EM2RS setup pulse_per_revolution 0x0001 100 -> 200",
+            "GD20 setup P05.04 0x0504 deferred until STOP",
+        ])
+        text = runtime_sheet(journal)
+
+        self.assertIn("stojí, STOP", text)
+        self.assertIn("kontrolované hodnoty sedia", text)
+        self.assertIn("Pr5.00 8/8 (0,8 A)", text)
+        self.assertIn("P00.01: sedí, hodnota 2", text)
+        self.assertIn("Pr0.00: pri štarte zapísané z 100 na 200", text)
+        self.assertIn("P05.04: zápis odložený, kým menič stojí", text)
+        self.assertNotIn("0x", text)
+
+    def test_program_sheet_reaches_the_model(self):
+
+        _, client = self._ask(
+            {"reply": "x", "understood": "", "question": True, "changes": []},
+            text="ako je nastaveny step motor driver",
+        )
+        sent = "\n".join(item["content"] for item in client.sent["messages"])
+
+        self.assertIn("## Čo kód robí", sent)
+        self.assertIn("## Čo program práve hlási", sent)
+        self.assertNotIn("0x", program_sheet(""))
 
 
 class SetupServicesTest(unittest.TestCase):

@@ -61,7 +61,7 @@ Adresy sú podľa pravidla z kapitoly 7.4.1. Pri štarte mastera sa zapisujú le
 | P00.03 | `0x0003` | max. frekvencia, 0,01 Hz (str. 40) | — | nezapisuje |
 | P00.04 | `0x0004` | horný limit frekvencie, 0,01 Hz | — | nezapisuje |
 | P00.05 | `0x0005` | dolný limit frekvencie, 0,01 Hz | — | nezapisuje |
-| P00.06 | `0x0006` | zdroj frekvencie A; `7` = procesný PID (str. 40) | 7 | nezapisuje |
+| P00.06 | `0x0006` | zdroj frekvencie A; `7` = procesný PID (str. 40) | 7 | nečíta ani nezapisuje; sedmička v YAML je len očakávaná hodnota |
 | P00.11 | `0x000B` | rozbeh, 0,0–3600,0 s | — | nezapisuje |
 | P00.12 | `0x000C` | dobeh, 0,0–3600,0 s | — | nezapisuje |
 | P01.21 | `0x0115` | reštart po výpadku; `0` vypnutý, `1` zapnutý (str. 50) | 0 | zápis pri štarte |
@@ -78,6 +78,6 @@ Adresy sú podľa pravidla z kapitoly 7.4.1. Pri štarte mastera sa zapisujú le
 | P14.02 | `0x0E02` | rámec; `0` = 8N1 RTU, default je `1` = 8E1 (str. 101) | 0 | nezapisuje |
 | P14.04 | `0x0E04` | timeout komunikácie, 0,0–60,0 s | — | nezapisuje |
 
-P00.07 je zdroj frekvencie B, nie druhý zápis P00.06. PID beží, keď je `7` v P00.06 alebo v P00.07 (str. 40 a 88). YAML nastavuje len zdroj A.
+P00.07 je zdroj frekvencie B, nie druhý zápis P00.06. PID beží, keď je `7` v P00.06 alebo v P00.07 (str. 40 a 88). Master ani jeden z nich nečíta a nezapisuje. V YAML je očakávaná hodnota len pri P00.06.
 
 AI2 pri voľbe prúdu 0–20 mA hlási menič ako 0–10 V (poznámka pri P00.07, str. 40). Register `0x300D` je preto vo voltoch. Prepočet 4–20 mA na 0–1500 kPa je v YAML, nie v registri meniča.

@@ -4,7 +4,7 @@ Stav: implementované 15. novembra 2026 (`iot_core/setup/`, `/setup`).
 
 ## Účel
 
-Kritériá v YAML sú pre zákazníka nezrozumiteľné. Karta Setup mu dovolí povedať po slovensky, čo chce zmeniť („štart generátora až od 85 °C“, „pridaj mail technika“). AI agent vetu preloží na zmenu povoleného kľúča a ukáže ju. Súbor zapíše až Python po kliknutí na Súhlas.
+Kritériá v YAML sú pre zákazníka nezrozumiteľné. Karta Setup mu dovolí povedať po slovensky, čo chce zmeniť („štart generátora až od 85 °C“, „pridaj mail technika“). AI agent vetu preloží na zmenu povoleného kľúča a ukáže ju. Otázku na svorku, napríklad na ktorý pin je `t_gen_in`, odpovie z tabuliek zapojenia v `pravidla.md` a nič nenavrhne. Súbor zapíše až Python po kliknutí na Súhlas.
 
 Agent sa riadi manuálom `docs/agent/pravidla.md`. Toto zadanie popisuje kartu, backend a zápis okolo neho.
 
@@ -21,6 +21,8 @@ Agent sa riadi manuálom `docs/agent/pravidla.md`. Toto zadanie popisuje kartu, 
 2. Backend zloží správy pre model:
    - systémová správa: celý `pravidla.md`
    - druhá systémová správa: aktuálne hodnoty všetkých povolených kľúčov priamo zo súborov na disku (nie z cache procesu) a stav meniča (beží / stojí)
+   - úryvky manuálov nainštalovaných zariadení, keď sa otázka s nimi prekrýva
+   - správa z `iot_core/setup/program.py`: čo master pri štarte zapíše alebo len číta, ktoré YAML Python neberie, a posledná vzorka meniča a budiča z journalu `iot-master`
    - história rozhovoru z tejto relácie
    - veta zákazníka
 3. Model vráti JSON podľa schémy nižšie.

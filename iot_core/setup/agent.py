@@ -4,6 +4,8 @@ from pathlib import Path
 
 from iot_core.core.config import load_openai_secrets
 from iot_core.setup.keys import KEYS, ROOT, check, edges
+from iot_core.setup.manuals import excerpts as manual_excerpts
+from iot_core.setup.program import program_sheet
 
 MANUAL_PATH = ROOT / "docs/agent/pravidla.md"
 MAX_TEXT = 1000
@@ -97,6 +99,12 @@ def build_messages(text, history, values, drive):
         {"role": "system", "content": MANUAL_PATH.read_text(encoding="utf-8") + FORMAT},
         {"role": "system", "content": _state_message(values, drive)},
     ]
+    manuals = manual_excerpts(text)
+
+    if manuals:
+        messages.append({"role": "system", "content": manuals})
+
+    messages.append({"role": "system", "content": program_sheet()})
 
     for entry in (history or [])[-MAX_HISTORY:]:
         role = entry.get("role")
